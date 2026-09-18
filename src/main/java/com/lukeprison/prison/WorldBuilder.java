@@ -195,10 +195,15 @@ public class WorldBuilder {
 
     private void buildSkyPlatform() {
         int[][] footprints = {
-                pad(STARTER, 4), pad(CORRIDOR, 3), pad(HUB, 4), pad(CELLS, 4),
-                pad(CRATES, 4), pad(YARD, 4), pad(FISH_PATH, 3),
-                {-20, FISH_Z1 - 6, 440, FISH_Z2 + 6},
-                pad(LOGGING, 5), pad(FARM, 5),
+                pad(STARTER, 4), pad(CORRIDOR, 3),
+                // The hub, cells, crates and yard are stitched together with narrow connector
+                // corridors — tightly padding each room individually left real gaps between
+                // them once the cell block was widened. One combined blanket under the whole
+                // central complex removes that whole class of bug rather than chasing each path.
+                combinedBlanket(10, HUB, CELLS, CRATES, YARD),
+                pad(FISH_PATH, 4),
+                // Same reasoning for the fishing/logging/farm cluster out past the corridor.
+                combinedBlanket(15, new int[]{-20, FISH_Z1 - 6, 440, FISH_Z2 + 6}, LOGGING, FARM),
                 {HUB[2], -45, lastMineX2() + 30, 30}   // the ward line, incl. pits
         };
         for (int[] f : footprints) {
@@ -210,6 +215,16 @@ public class WorldBuilder {
                 }
             }
         }
+    }
+
+    /** The bounding box that encloses every given region, expanded by the given padding. */
+    private int[] combinedBlanket(int padding, int[]... regions) {
+        int minX = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+        for (int[] r : regions) {
+            minX = Math.min(minX, r[0]); minZ = Math.min(minZ, r[1]);
+            maxX = Math.max(maxX, r[2]); maxZ = Math.max(maxZ, r[3]);
+        }
+        return new int[]{minX - padding, minZ - padding, maxX + padding, maxZ + padding};
     }
 
     private int[] pad(int[] r, int p) { return new int[]{r[0] - p, r[1] - p, r[2] + p, r[3] + p}; }

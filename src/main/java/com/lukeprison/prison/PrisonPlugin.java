@@ -59,8 +59,10 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // Created by the plugin itself, so no server config needs editing.
         World world = Bukkit.getWorld("prison");
         if (world == null) {
+            VoidGenerator gen = new VoidGenerator();
             world = new org.bukkit.WorldCreator("prison")
-                    .generator(new VoidGenerator())
+                    .generator(gen)
+                    .biomeProvider(gen.getDefaultBiomeProvider(null))
                     .environment(World.Environment.NORMAL)
                     .createWorld();
         }

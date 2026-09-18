@@ -35,6 +35,7 @@ public class MineResetTask extends BukkitRunnable {
 
     @Override
     public void run() {
+        if (!builder.alreadyBuilt()) return; // never touch an unbuilt world
         tickCount++;
         for (String rank : builder.getMineBounds().keySet()) {
             double remaining = builder.percentRemaining(rank);

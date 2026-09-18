@@ -716,6 +716,11 @@ public class WorldBuilder {
     }
 
     public void resetMine(String rank) {
+        // Guards against the exact crash we hit: if the world was never actually built (a stale
+        // marker, or called too early), a reset must never try to write blocks across an area
+        // whose chunks were never generated — that forces expensive synchronous world gen instead
+        // of a fast disk read and can hang the main thread long enough for the watchdog to kill it.
+        if (!alreadyBuilt()) return;
         int[] b = mineBounds.get(rank);
         if (b == null) return;
         RankMineData.Def d = RankMineData.RANKS.get(rank);
@@ -727,13 +732,24 @@ public class WorldBuilder {
         placeMineLights(d);
     }
 
+    /**
+     * Samples a mine to see how mined-out it is. Only reads blocks in chunks that are already
+     * loaded, so this can never force the server to synchronously generate distant chunks — a
+     * mine nobody has visited yet just reports "not empty" and is skipped, which is correct
+     * anyway (nobody's mined it).
+     */
     public double percentRemaining(String rank) {
         int[] b = mineBounds.get(rank);
-        if (b == null) return 100;
+        if (b == null || !alreadyBuilt()) return 100;
         int total = 0, filled = 0, step = Math.max(1, (b[3] - b[0]) / 20);
-        for (int x = b[0] + 1; x < b[3]; x += step) for (int z = b[2] + 1; z < b[5]; z += step) for (int y = b[1] + 1; y < b[4]; y += 2) {
-            total++;
-            if (world.getBlockAt(x, y, z).getType() != Material.AIR) filled++;
+        for (int x = b[0] + 1; x < b[3]; x += step) {
+            for (int z = b[2] + 1; z < b[5]; z += step) {
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) continue;
+                for (int y = b[1] + 1; y < b[4]; y += 2) {
+                    total++;
+                    if (world.getBlockAt(x, y, z).getType() != Material.AIR) filled++;
+                }
+            }
         }
         return total == 0 ? 100 : (100.0 * filled / total);
     }

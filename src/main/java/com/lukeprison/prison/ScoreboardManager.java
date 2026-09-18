@@ -16,7 +16,7 @@ public class ScoreboardManager {
 
     public void update(Player p) {
         Scoreboard board = plugin.getServer().getScoreboardManager().getNewScoreboard();
-        Objective obj = board.registerNewObjective("prison", "dummy", "§6§lTHE PRISON");
+        Objective obj = board.registerNewObjective("prison", "dummy", "§b§lSKY PRISON");
         obj.setDisplaySlot(org.bukkit.scoreboard.DisplaySlot.SIDEBAR);
 
         String rank = plugin.ranks().getRank(p);
@@ -38,7 +38,7 @@ public class ScoreboardManager {
         setLine(board, obj, 4, "§7Tokens: §b" + plugin.ranks().getTokens(p));
         setLine(board, obj, 3, "§7Next: " + nextLine);
         setLine(board, obj, 2, " ");
-        setLine(board, obj, 1, "§7/prison for menu");
+        setLine(board, obj, 1, "§7Sky Prison");
 
         p.setScoreboard(board);
     }

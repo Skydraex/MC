@@ -34,6 +34,9 @@ commands:
   spawn:
     description: Return to the prison hub
     aliases: [hub]
+  coinflip:
+    description: Open coinflips, or create one with an amount
+    aliases: [cf, flip]
 permissions:
   prison.admin:
     default: op

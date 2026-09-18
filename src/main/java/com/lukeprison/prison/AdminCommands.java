@@ -91,6 +91,11 @@ public class AdminCommands implements CommandExecutor {
                 t.teleport(plugin.builder().getStarterSpawn());
                 s.sendMessage("§aReset " + t.getName() + " to a brand-new player and sent them to the bus.");
             }
+            case "validate" -> {
+                s.sendMessage("§eRunning map connectivity check...");
+                new MapValidator(plugin.builder().getWorld(), WorldBuilder.Y)
+                        .run(s, plugin.builder().getHubSpawn());
+            }
             case "rebuild" -> {
                 File marker = new File(plugin.getDataFolder(), "world-built.marker");
                 if (marker.exists() && marker.delete()) {
@@ -123,5 +128,6 @@ public class AdminCommands implements CommandExecutor {
         s.sendMessage("§7  fishlevel <player> <1-60>");
         s.sendMessage("§7  resetplayer <player>");
         s.sendMessage("§7  rebuild");
+        s.sendMessage("§7  validate §8- scan the map for void gaps in the floor");
     }
 }

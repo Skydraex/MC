@@ -37,6 +37,10 @@ commands:
   coinflip:
     description: Open coinflips, or create one with an amount
     aliases: [cf, flip]
+  prisonadmin:
+    description: Admin and testing tools
+    aliases: [padmin]
+    permission: prison.admin
 permissions:
   prison.admin:
     default: op

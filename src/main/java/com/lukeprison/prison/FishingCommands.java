@@ -87,7 +87,7 @@ public class FishingCommands implements Listener {
                 p.sendMessage("\u00a7cYou need fishing level " + pond.requiredLevel + " for that pond.");
                 return;
             }
-            Location loc = new Location(p.getWorld(), pond.x1 + 2.5, pond.y + 1, pond.z2 + 2.5);
+            Location loc = new Location(plugin.builder().getWorld(), pond.x1 + 2.5, pond.y + 1, pond.z2 + 2.5);
             p.teleport(loc);
             p.sendMessage("\u00a7aTravelled to " + pond.name + ".");
             p.closeInventory();

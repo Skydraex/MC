@@ -74,6 +74,18 @@ public class RankManager {
         return true;
     }
 
+    /** Wipes a player back to a brand-new state so the intro can be replayed. */
+    public void resetPlayer(Player p) {
+        UUID id = p.getUniqueId();
+        ranks.put(id, "A");
+        prestige.put(id, 0);
+        tokens.put(id, 0L);
+        blocksMined.put(id, 0L);
+        autoSell.remove(id);
+        kitGiven.remove(id);
+        p.recalculatePermissions();
+    }
+
     public boolean hasReceivedKit(Player p) { return kitGiven.contains(p.getUniqueId()); }
     public void markKitGiven(Player p) { kitGiven.add(p.getUniqueId()); }
 

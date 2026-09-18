@@ -58,9 +58,12 @@ public class Architect {
     public static final Palette PRISON_STONE = Palette.of(
             Material.STONE_BRICKS, Material.CRACKED_STONE_BRICKS, 18, Material.MOSSY_STONE_BRICKS, 9);
 
-    /** Cold, clean concrete for the hub interior. */
-    public static final Palette HUB_CONCRETE = Palette.of(
-            Material.GRAY_CONCRETE, Material.LIGHT_GRAY_CONCRETE, 16, Material.POLISHED_ANDESITE, 10);
+    /**
+     * Textured tuff for the hub. Noise only works on blocks that have surface texture —
+     * on flat concrete it reads as pixel static, which is why concrete was dropped.
+     */
+    public static final Palette HUB_STONE = Palette.of(
+            Material.TUFF_BRICKS, Material.POLISHED_TUFF, 14, Material.CHISELED_TUFF, 4);
 
     /** Darker, heavier stone for cell blocks. */
     public static final Palette CELL_STONE = Palette.of(

@@ -30,6 +30,14 @@ public class SellSignListener implements Listener {
         this.sellSigns = sellSigns;
     }
 
+    private String pretty(Material mat) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : mat.name().toLowerCase().split("_")) {
+            sb.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1)).append(" ");
+        }
+        return sb.toString().trim();
+    }
+
     @EventHandler
     public void onInteract(PlayerInteractEvent e) {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
@@ -51,9 +59,10 @@ public class SellSignListener implements Listener {
         }
 
         int amount = hand.getAmount();
+        Material sold = hand.getType();   // capture before the stack is emptied
         double total = unitPrice * amount;
         hand.setAmount(0);
         plugin.economy().depositPlayer(p, total);
-        p.sendMessage("§aSold " + amount + " x " + hand.getType() + " for §6$" + String.format("%.2f", total));
+        p.sendMessage("§aSold " + amount + " x " + pretty(sold) + " for §6$" + String.format("%,.2f", total));
     }
 }

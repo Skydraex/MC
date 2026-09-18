@@ -6,6 +6,8 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.type.Bed;
+import org.bukkit.block.data.type.WallSign;
 import org.bukkit.block.sign.Side;
 import org.bukkit.plugin.Plugin;
 
@@ -13,39 +15,43 @@ import java.io.File;
 import java.util.*;
 
 /**
- * Constructs the entire physical server: starter area and prison bus, intake corridor,
- * hub, 100+ cells, a ward antechamber per rank fronting its mine, and the tiered fishing area.
+ * Constructs the entire prison into a void world so it floats in the sky.
  *
- * Block placement happens ONCE, on first boot. A marker file then short-circuits the build on
- * every later restart, while bounds are still registered in memory (cheap) so gameplay logic
- * keeps working. Without this the server would spend minutes re-placing millions of blocks
- * every single start.
+ * Layout is a fixed set of reserved regions that never overlap, all sharing one floor height.
+ * Rooms are built first, then every doorway is carved in a final pass — carving as you go is
+ * how a later room ends up bricking over an earlier room's exit.
+ *
+ * Block placement runs once; a marker file skips it on later boots while bounds still register.
  */
 public class WorldBuilder {
 
     private final Plugin plugin;
     private final World world;
+    private final Architect arch;
     private final Map<String, int[]> mineBounds = new LinkedHashMap<>();
     private final Map<Location, SellSignListener.SellSignData> sellSigns = new HashMap<>();
+    private final Map<Location, String> crateLocations = new LinkedHashMap<>();
+    private final List<PvpZoneManager.Zone> pvpZones = new ArrayList<>();
+    private final List<PendingSign> signs = new ArrayList<>();
     private Location hubSpawn;
     private Location starterSpawn;
-    private final Architect arch;
 
-    // ---- Layout constants -------------------------------------------------
-    private static final int GROUND_Y = 94;
-    private static final int ENTRANCE_Z = 3;
+    // ---- Master layout. Every region here is disjoint from every other. ----
+    public static final int Y = 95;               // one floor height everywhere
+    private static final int ENTRANCE_Z = 3;      // shared alignment for the whole ward line
 
-    private static final int STARTER_X1 = -150, STARTER_X2 = -110;
-    private static final int STARTER_Z1 = -18, STARTER_Z2 = 18;
-    private static final int CORRIDOR_X1 = -110, CORRIDOR_X2 = -41;
-    private static final int HUB_X1 = -40, HUB_X2 = -5, HUB_Z1 = -20, HUB_Z2 = 20;
+    private static final int[] STARTER   = {-170, -20, -130, 20};
+    private static final int[] CORRIDOR  = {-130,  -5,  -76,  5};
+    private static final int[] HUB       = { -75, -30,  -15, 30};
+    private static final int[] CELLS     = { -75,  45,  -15, 115};
+    private static final int[] CRATES    = { -75, -75,  -45, -45};
+    private static final int[] YARD      = { -40, -75,  -15, -45};
+    private static final int[] FISH_PATH = {  -8,-100,   -2, -1};
+    private static final int FISH_Z1 = -240, FISH_Z2 = -100;
 
-    private static final int CELL_Z_START = 40;
-    private static final int CELLS_PER_ROW = 10;
-    private static final int CELL_ROWS = 10;      // 10 x 10 = 100 cells
-    private static final int CELL_SIZE = 5;
+    private static final int CELLS_PER_ROW = 10, CELL_ROWS = 5, CELL_SIZE = 7, CELL_TIERS = 2;
 
-    private static final int FISH_Z_BASE = -80;   // ponds run away from the prison on -Z
+    private record PendingSign(int x, int y, int z, BlockFace facing, String[] lines) { }
 
     public WorldBuilder(Plugin plugin, World world) {
         this.plugin = plugin;
@@ -53,498 +59,460 @@ public class WorldBuilder {
         this.arch = new Architect(world);
     }
 
+    public World getWorld() { return world; }
     public Map<String, int[]> getMineBounds() { return mineBounds; }
     public Map<Location, SellSignListener.SellSignData> getSellSigns() { return sellSigns; }
+    public Map<Location, String> getCrateLocations() { return crateLocations; }
+    public List<PvpZoneManager.Zone> getPvpZones() { return pvpZones; }
     public Location getHubSpawn() { return hubSpawn; }
     public Location getStarterSpawn() { return starterSpawn; }
 
-    private File markerFile() {
-        return new File(plugin.getDataFolder(), "world-built.marker");
-    }
+    private File markerFile() { return new File(plugin.getDataFolder(), "world-built.marker"); }
+    public boolean alreadyBuilt() { return markerFile().exists(); }
 
-    public boolean alreadyBuilt() {
-        return markerFile().exists();
-    }
-
-    /**
-     * Registers every zone's bounds and sell-sign data in memory. Always runs, and places no
-     * blocks, so restarts stay fast.
-     */
+    /** Registers all bounds in memory. Runs every boot; places nothing. */
     public void registerBounds() {
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.rank.equals("FREE")) continue;
             mineBounds.put(d.rank, new int[]{d.x1, d.y1, d.z1, d.x2, d.y2, d.z2});
-
-            Material filler = safeMaterial(d.filler);
-            Material common = safeMaterial(d.common);
-            Material rare = safeMaterial(d.rare);
             Map<Material, Double> prices = new HashMap<>();
-            prices.put(filler, d.fillerPrice);
-            prices.put(common, d.commonPrice);
-            prices.put(rare, d.rarePrice);
-
-            Location signLoc = new Location(world, d.x1 - 1, d.y1 + 1, d.z1 + ENTRANCE_Z);
-            sellSigns.put(signLoc, new SellSignListener.SellSignData(d.rank, prices));
+            prices.put(safeMaterial(d.filler), d.fillerPrice);
+            prices.put(safeMaterial(d.common), d.commonPrice);
+            prices.put(safeMaterial(d.rare), d.rarePrice);
+            sellSigns.put(new Location(world, d.x1 - 1, Y + 2, d.z1 + ENTRANCE_Z + 2),
+                    new SellSignListener.SellSignData(d.rank, prices));
         }
         registerPondBounds();
         registerCrateLocations();
-        buildPvpArenas(false); // register zone bounds only; no block placement
-        hubSpawn = new Location(world, HUB_X1 + 5.5, GROUND_Y + 1, 0.5);
-        starterSpawn = new Location(world, STARTER_X1 + 6.5, GROUND_Y + 1, 0.5);
-        world.setSpawnLocation(HUB_X1 + 5, GROUND_Y + 1, 0);
+        registerPvpZones();
+        hubSpawn = new Location(world, (HUB[0] + HUB[2]) / 2.0 + 0.5, Y + 1, 0.5);
+        starterSpawn = new Location(world, STARTER[0] + 8.5, Y + 1, 0.5);
+        world.setSpawnLocation(hubSpawn.getBlockX(), Y + 1, 0);
     }
 
     /** Full block placement. Only called on first boot. */
     public void buildAll() {
-        plugin.getLogger().info("First boot detected \u2014 building the prison. This takes a few minutes.");
+        plugin.getLogger().info("First boot — building Sky Prison. This takes a few minutes.");
+
+        buildSkyPlatform();
         buildStarterArea();
         buildIntakeCorridor();
         buildHub();
         buildCellBlock();
-        for (RankMineData.Def def : RankMineData.RANKS.values()) {
-            if (def.rank.equals("FREE")) continue;
-            buildMine(def);
-            buildWard(def);
+        buildCrateHall();
+        buildYard();
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.rank.equals("FREE")) continue;
+            buildMine(d);
+            buildWard(d);
         }
-        connectMineWalkways();
+        buildWardWalkways();
+        buildWardPits();
         buildFishingArea();
-        buildCrateRoom();
-        buildPvpArenas(true);
+
+        // Openings go in last so nothing can brick them over.
+        carveAllDoorways();
+
         setupWorldBorder();
         try {
             plugin.getDataFolder().mkdirs();
             markerFile().createNewFile();
         } catch (Exception e) {
-            plugin.getLogger().warning("Could not write world-built marker; the world may rebuild next boot.");
+            plugin.getLogger().warning("Could not write world-built marker.");
         }
         plugin.getLogger().info("World build complete.");
     }
 
-    // ---- Starter area -----------------------------------------------------
-
-    private void buildStarterArea() {
-        // Open-air arrival yard, walled so new players are funnelled toward the corridor.
-        floor(STARTER_X1, STARTER_Z1, STARTER_X2, STARTER_Z2, GROUND_Y, Material.GRAY_CONCRETE);
-        perimeter(STARTER_X1, STARTER_Z1, STARTER_X2, STARTER_Z2, GROUND_Y + 1, GROUND_Y + 6,
-                Material.STONE_BRICKS);
-        lightGrid(STARTER_X1, STARTER_Z1, STARTER_X2, STARTER_Z2, GROUND_Y + 6, 10, Material.SEA_LANTERN);
-
-        buildPrisonBus(STARTER_X1 + 4, GROUND_Y + 1, -3);
-
-        sign(STARTER_X1 + 9, GROUND_Y + 2, 0,
-                "§8§lINTAKE", "Welcome to", "the Prison.", "Head east \u2192");
-
-        // Opening from the yard into the intake corridor.
-        carve(STARTER_X2, GROUND_Y + 1, 0, 1, 3);
+    /**
+     * Re-applies every sign's text a moment after the world is ready. Sign block entities set
+     * during a synchronous bulk build don't always reach clients; writing them again from a
+     * scheduled task does. Also waxes them so players can't open the edit screen.
+     */
+    public void applySigns() {
+        for (PendingSign ps : signs) {
+            Block b = world.getBlockAt(ps.x, ps.y, ps.z);
+            if (b.getType() != Material.OAK_WALL_SIGN) {
+                b.setType(Material.OAK_WALL_SIGN, false);
+                if (b.getBlockData() instanceof WallSign ws) {
+                    ws.setFacing(ps.facing);
+                    b.setBlockData(ws, false);
+                }
+            }
+            if (b.getState() instanceof Sign s) {
+                for (int i = 0; i < 4 && i < ps.lines.length; i++) {
+                    s.getSide(Side.FRONT).setLine(i, ps.lines[i]);
+                }
+                s.setWaxed(true);
+                s.update(true, false);
+            }
+        }
     }
 
-    /** A blocky prison transport bus the player spawns beside. */
+    // ---- Sky platform: solid ground under every region so nothing is a void trap ----
+
+    private void buildSkyPlatform() {
+        int[][] footprints = {
+                pad(STARTER, 4), pad(CORRIDOR, 3), pad(HUB, 4), pad(CELLS, 4),
+                pad(CRATES, 4), pad(YARD, 4), pad(FISH_PATH, 3),
+                {-20, FISH_Z1 - 6, 440, FISH_Z2 + 6},
+                {HUB[2], -45, lastMineX2() + 30, 30}   // the ward line, incl. pits
+        };
+        for (int[] f : footprints) {
+            for (int x = f[0]; x <= f[2]; x++) {
+                for (int z = f[1]; z <= f[3]; z++) {
+                    arch.set(x, Y - 1, z, Material.DEEPSLATE);
+                    arch.set(x, Y - 2, z, Material.DEEPSLATE);
+                    arch.set(x, Y - 3, z, Material.BEDROCK);
+                }
+            }
+        }
+    }
+
+    private int[] pad(int[] r, int p) { return new int[]{r[0] - p, r[1] - p, r[2] + p, r[3] + p}; }
+
+    private int lastMineX2() {
+        int max = 0;
+        for (RankMineData.Def d : RankMineData.RANKS.values()) max = Math.max(max, d.x2);
+        return max;
+    }
+
+    // ---- Starter yard and prison bus ----
+
+    private void buildStarterArea() {
+        int[] r = STARTER;
+        arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.GRAY_CONCRETE_POWDER, Material.GRAVEL, 25));
+        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 7, Architect.PRISON_STONE,
+                Material.POLISHED_DEEPSLATE, Material.CHISELED_STONE_BRICKS, 6);
+        // Open-air yard, so lighting sits on wall-top posts rather than a ceiling.
+        for (int x = r[0]; x <= r[2]; x += 6) {
+            arch.set(x, Y + 8, r[1], Material.LANTERN);
+            arch.set(x, Y + 8, r[3], Material.LANTERN);
+        }
+        buildPrisonBus(r[0] + 4, Y + 1, -3);
+        sign(r[0] + 12, Y + 2, -1, BlockFace.EAST, "§8§lINTAKE", "Welcome to", "Sky Prison.", "Head east →");
+    }
+
     private void buildPrisonBus(int x, int y, int z) {
         for (int dx = 0; dx < 12; dx++) {
             for (int dz = 0; dz < 5; dz++) {
                 for (int dy = 0; dy < 4; dy++) {
                     boolean shell = dx == 0 || dx == 11 || dz == 0 || dz == 4 || dy == 0 || dy == 3;
-                    Block b = world.getBlockAt(x + dx, y + dy, z + dz);
-                    if (shell) {
-                        boolean window = dy == 2 && dx > 1 && dx < 10 && (dz == 0 || dz == 4);
-                        b.setType(window ? Material.GRAY_STAINED_GLASS : Material.YELLOW_CONCRETE);
-                    } else {
-                        b.setType(Material.AIR);
-                    }
+                    boolean window = dy == 2 && dx > 1 && dx < 10 && (dz == 0 || dz == 4);
+                    arch.set(x + dx, y + dy, z + dz,
+                            !shell ? Material.AIR : window ? Material.GRAY_STAINED_GLASS : Material.YELLOW_CONCRETE);
                 }
             }
         }
-        // Wheels and a doorway out of the bus.
         for (int dx : new int[]{2, 9}) {
-            for (int dz : new int[]{0, 4}) {
-                world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.BLACK_CONCRETE);
-            }
+            for (int dz : new int[]{0, 4}) arch.set(x + dx, y - 1, z + dz, Material.BLACK_CONCRETE);
         }
-        for (int dy = 1; dy <= 2; dy++) {
-            world.getBlockAt(x + 11, y + dy, z + 2).setType(Material.AIR);
-        }
+        arch.set(x + 11, y + 1, z + 2, Material.AIR);
+        arch.set(x + 11, y + 2, z + 2, Material.AIR);
     }
 
-    // ---- Intake corridor (tutorial + NPCs) --------------------------------
+    // ---- Intake corridor ----
 
     private void buildIntakeCorridor() {
-        int z1 = -4, z2 = 4;
-        floor(CORRIDOR_X1, z1, CORRIDOR_X2, z2, GROUND_Y, Material.SMOOTH_STONE);
-        perimeter(CORRIDOR_X1, z1, CORRIDOR_X2, z2, GROUND_Y + 1, GROUND_Y + 5, Material.STONE_BRICKS);
-        ceiling(CORRIDOR_X1, z1, CORRIDOR_X2, z2, GROUND_Y + 5, Material.STONE_BRICKS);
-        lightGrid(CORRIDOR_X1, z1, CORRIDOR_X2, z2, GROUND_Y + 4, 8, Material.SEA_LANTERN);
+        int[] r = CORRIDOR;
+        arch.room(r[0], r[1], r[2], r[3], Y, 6, Architect.PRISON_STONE,
+                Material.POLISHED_DEEPSLATE, Material.CHISELED_STONE_BRICKS,
+                Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE,
+                Material.STONE_BRICKS, Material.STONE_BRICK_STAIRS, Material.SEA_LANTERN);
 
-        // Tutorial signage down the corridor wall.
-        sign(CORRIDOR_X1 + 8, GROUND_Y + 2, z1 + 1,
-                "§6Step 1", "Mine blocks in", "your rank's mine", "to earn money.");
-        sign(CORRIDOR_X1 + 20, GROUND_Y + 2, z1 + 1,
-                "§6Step 2", "Sell them at the", "sell sign, or use", "/autosell");
-        sign(CORRIDOR_X1 + 32, GROUND_Y + 2, z1 + 1,
-                "§6Step 3", "/rankup to climb", "from A to Z,", "then prestige.");
-        sign(CORRIDOR_X1 + 44, GROUND_Y + 2, z1 + 1,
-                "§6Step 4", "Spend tokens on", "pickaxe enchants", "with /enchant");
-        sign(CORRIDOR_X1 + 56, GROUND_Y + 2, z1 + 1,
-                "§bFishing", "Unlocks at rank " + FishingData.UNLOCK_RANK, "Own level ladder", "/fishing");
-
-        // Opening into the hub.
-        carve(CORRIDOR_X2, GROUND_Y + 1, 0, 1, 3);
+        // Tutorial signs along the north wall, facing into the corridor.
+        int z = r[1] + 1;
+        sign(r[0] + 10, Y + 2, z, BlockFace.SOUTH, "§6Step 1", "Mine blocks in", "your rank's mine", "to earn money.");
+        sign(r[0] + 20, Y + 2, z, BlockFace.SOUTH, "§6Step 2", "Sell at the", "sell sign, or", "use /autosell");
+        sign(r[0] + 30, Y + 2, z, BlockFace.SOUTH, "§6Step 3", "/rankup to climb", "from A to Z,", "then prestige.");
+        sign(r[0] + 40, Y + 2, z, BlockFace.SOUTH, "§6Step 4", "Spend tokens on", "pickaxe enchants", "with /enchant");
+        sign(r[0] + 48, Y + 2, z, BlockFace.SOUTH, "§bFishing", "Unlocks at rank " + FishingData.UNLOCK_RANK, "Own level ladder", "/fishing");
     }
 
-    /** Coordinates where quest NPCs are spawned (handled by QuestNpcManager). */
-    public Location wardenNpcLocation() {
-        return new Location(world, CORRIDOR_X1 + 4.5, GROUND_Y + 1, 0.5);
-    }
+    public Location wardenNpcLocation() { return new Location(world, CORRIDOR[0] + 5.5, Y + 1, 0.5); }
+    public Location quartermasterNpcLocation() { return new Location(world, CORRIDOR[2] - 5.5, Y + 1, 0.5); }
 
-    public Location quartermasterNpcLocation() {
-        return new Location(world, CORRIDOR_X1 + 50.5, GROUND_Y + 1, 0.5);
-    }
-
-    // ---- Hub --------------------------------------------------------------
+    // ---- Hub ----
 
     private void buildHub() {
-        int height = 9;
+        int[] r = HUB;
+        arch.room(r[0], r[1], r[2], r[3], Y, 10, Architect.HUB_STONE,
+                Material.POLISHED_DEEPSLATE, Material.CHISELED_TUFF_BRICKS,
+                Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE,
+                Material.TUFF_BRICKS, Material.TUFF_BRICK_STAIRS, Material.SEA_LANTERN);
+        arch.windowRun(r[0], Y + 1, r[1], r[2], 6, 4, Material.IRON_BARS, Material.TUFF_BRICK_STAIRS);
+        arch.windowRun(r[0], Y + 1, r[3], r[2], 6, 4, Material.IRON_BARS, Material.TUFF_BRICK_STAIRS);
 
-        // Detailed room: recessed concrete panels, polished-andesite pillars on a 5-block
-        // rhythm, chiseled trim courses, overhanging roof, lighting set into the ceiling.
-        arch.room(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, GROUND_Y, height,
-                Architect.HUB_CONCRETE,
-                Material.POLISHED_ANDESITE,      // pillars
-                Material.CHISELED_STONE_BRICKS,  // trim courses
-                Material.POLISHED_ANDESITE,      // floor
-                Material.POLISHED_BLACKSTONE,    // floor band
-                Material.GRAY_CONCRETE,          // roof
-                Material.STONE_BRICK_STAIRS,     // overhang stairs
-                Material.SEA_LANTERN);
-
-        // Barred window slits along the long walls with stair sills beneath.
-        arch.windowRun(HUB_X1, GROUND_Y + 1, HUB_Z1, HUB_X2, 6, 3,
-                Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
-        arch.windowRun(HUB_X1, GROUND_Y + 1, HUB_Z2, HUB_X2, 6, 3,
-                Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
-
-        // Framed doorways: west to intake, east to the wards, north to the cell block.
-        arch.doorway(HUB_X1, GROUND_Y + 1, 0, true, 1, 4, Material.CHISELED_STONE_BRICKS);
-        arch.doorway(HUB_X2, GROUND_Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_STONE_BRICKS);
-        arch.doorway(HUB_X1 + 18, GROUND_Y + 1, HUB_Z2, false, 1, 4, Material.CHISELED_STONE_BRICKS);
-
-        // A raised central dais so the room has a focal point rather than being an empty hall.
-        int cx = (HUB_X1 + HUB_X2) / 2, cz = 0;
-        for (int dx = -3; dx <= 3; dx++) {
-            for (int dz = -3; dz <= 3; dz++) {
-                if (Math.abs(dx) + Math.abs(dz) > 4) continue;
-                arch.set(cx + dx, GROUND_Y, cz + dz, Material.POLISHED_BLACKSTONE);
+        // Central dais and landmark column.
+        int cx = (r[0] + r[2]) / 2, cz = 0;
+        for (int dx = -4; dx <= 4; dx++) {
+            for (int dz = -4; dz <= 4; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 5) continue;
+                arch.set(cx + dx, Y, cz + dz, Material.POLISHED_BLACKSTONE);
+                if (Math.abs(dx) + Math.abs(dz) <= 3) arch.set(cx + dx, Y + 1, cz + dz, Material.POLISHED_BLACKSTONE_BRICKS);
             }
         }
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                if (Math.abs(dx) + Math.abs(dz) > 3) continue;
-                arch.set(cx + dx, GROUND_Y + 1, cz + dz, Material.POLISHED_BLACKSTONE_BRICKS);
-            }
-        }
-        // Central beacon-like column for a landmark silhouette.
-        for (int dy = 2; dy <= 5; dy++) {
-            arch.set(cx, GROUND_Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
-        }
-        arch.set(cx, GROUND_Y + 6, cz, Material.SEA_LANTERN);
-        for (BlockFaceOffset o : CARDINALS) {
-            arch.placeStair(cx + o.dx, GROUND_Y + 2, cz + o.dz,
-                    Material.POLISHED_BLACKSTONE_STAIRS, o.facing, false);
-        }
+        for (int dy = 2; dy <= 6; dy++) arch.set(cx, Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
+        arch.set(cx, Y + 7, cz, Material.SEA_LANTERN);
 
-        sign(HUB_X1 + 6, GROUND_Y + 2, 2, "\u00a76\u00a7lTHE HUB", "/prison  menu", "/warps  mines", "/fishing  ponds");
-
-        // Walkway from the hub's east door to Mine A.
-        RankMineData.Def mineA = RankMineData.RANKS.get("A");
-        if (mineA != null) {
-            for (int x = HUB_X2 + 1; x < mineA.x1; x++) {
-                for (int z = ENTRANCE_Z - 2; z <= ENTRANCE_Z + 2; z++) {
-                    boolean edge = z == ENTRANCE_Z - 2 || z == ENTRANCE_Z + 2;
-                    arch.set(x, mineA.y1, z, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
-                }
-                // Lamp posts down the walkway at intervals.
-                if ((x - HUB_X2) % 6 == 0) {
-                    for (int dy = 1; dy <= 3; dy++) {
-                        arch.set(x, mineA.y1 + dy, ENTRANCE_Z - 3, Material.POLISHED_BLACKSTONE_WALL);
-                    }
-                    arch.set(x, mineA.y1 + 4, ENTRANCE_Z - 3, Material.LANTERN);
-                }
-            }
-        }
+        sign(r[0] + 1, Y + 2, 6, BlockFace.EAST, "§b§lSKY PRISON", "/prison  menu", "/warps  mines", "/fishing  ponds");
+        sign(r[0] + 1, Y + 2, -6, BlockFace.EAST, "§6§lWHERE TO", "N: Cell block", "S: Crates & Yard", "E: The Wards");
     }
 
-    /** Small helper for placing stairs on the four cardinal sides of a point. */
-    private record BlockFaceOffset(int dx, int dz, BlockFace facing) { }
-
-    private static final BlockFaceOffset[] CARDINALS = {
-            new BlockFaceOffset(1, 0, BlockFace.WEST),
-            new BlockFaceOffset(-1, 0, BlockFace.EAST),
-            new BlockFaceOffset(0, 1, BlockFace.NORTH),
-            new BlockFaceOffset(0, -1, BlockFace.SOUTH)
-    };
-
-    // ---- Cell block (100 cells) -------------------------------------------
+    // ---- Cell block: two tiers of 7x7 cells on railed gantries ----
 
     private void buildCellBlock() {
-        int blockX1 = HUB_X1 + 10;
-        int blockX2 = blockX1 + (CELLS_PER_ROW * CELL_SIZE) + 5;
-        int blockZ1 = CELL_Z_START - 4;
-        int blockZ2 = blockZ1 + (CELL_ROWS * CELL_SIZE) + 10;
-        int hallHeight = 14; // tall enough for a two-tier cell block
+        int[] r = CELLS;
+        arch.room(r[0], r[1], r[2], r[3], Y, 14, Architect.CELL_STONE,
+                Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE,
+                Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE,
+                Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS, Material.SEA_LANTERN);
+        arch.windowRun(r[0], Y + 1, r[1], r[2], 8, 10, Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
+        arch.windowRun(r[0], Y + 1, r[3], r[2], 8, 10, Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
 
-        arch.room(blockX1 - 3, blockZ1, blockX2 + 3, blockZ2, GROUND_Y, hallHeight,
-                Architect.CELL_STONE,
-                Material.POLISHED_DEEPSLATE,
-                Material.CHISELED_DEEPSLATE,
-                Material.POLISHED_DEEPSLATE,
-                Material.POLISHED_BLACKSTONE,
-                Material.DEEPSLATE_TILES,
-                Material.DEEPSLATE_BRICK_STAIRS,
-                Material.SEA_LANTERN);
-
-        // High window slits so the hall reads as a real cell block interior.
-        arch.windowRun(blockX1 - 3, GROUND_Y + 1, blockZ1, blockX2 + 3, 7, 9,
-                Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
-        arch.windowRun(blockX1 - 3, GROUND_Y + 1, blockZ2, blockX2 + 3, 7, 9,
-                Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
-
-        arch.doorway(HUB_X1 + 18, GROUND_Y + 1, blockZ1, false, 1, 4, Material.CHISELED_DEEPSLATE);
-
-        // Two tiers of cells facing a central gantry walkway.
+        int startX = r[0] + 2;
+        int rowPitch = CELL_SIZE + 4;   // cell depth + 4-wide gantry
         int cellNumber = 1;
-        int tierHeight = 5;
-        for (int tier = 0; tier < 2; tier++) {
-            int y = GROUND_Y + tier * tierHeight;
-            for (int row = 0; row < CELL_ROWS / 2; row++) {
-                int cz = CELL_Z_START + row * (CELL_SIZE + 3);
+        for (int tier = 0; tier < CELL_TIERS; tier++) {
+            int y = Y + tier * 6;
+            for (int row = 0; row < CELL_ROWS; row++) {
+                int cz = r[1] + 5 + row * rowPitch;
                 for (int col = 0; col < CELLS_PER_ROW; col++) {
-                    int cx = blockX1 + col * CELL_SIZE;
-                    buildCell(cx, y, cz, cellNumber++);
+                    buildCell(startX + col * CELL_SIZE, y, cz, cellNumber++);
                 }
-                // Railed gantry in front of each row.
-                for (int x = blockX1 - 2; x <= blockX2; x++) {
-                    arch.set(x, y, cz - 1, Material.POLISHED_DEEPSLATE);
-                    arch.set(x, y, cz - 2, Material.DEEPSLATE_TILE_SLAB);
-                    if (tier > 0) arch.set(x, y + 1, cz - 2, Material.DEEPSLATE_BRICK_WALL);
-                }
-            }
-            // Stairs linking the tiers.
-            if (tier == 0) {
-                for (int i = 0; i < tierHeight; i++) {
-                    arch.placeStair(blockX2 + 1, GROUND_Y + i, CELL_Z_START + i,
-                            Material.DEEPSLATE_BRICK_STAIRS, BlockFace.NORTH, false);
-                    arch.set(blockX2 + 2, GROUND_Y + i, CELL_Z_START + i, Material.POLISHED_DEEPSLATE);
+                // Gantry in front of the row.
+                for (int x = startX - 1; x <= startX + CELLS_PER_ROW * CELL_SIZE; x++) {
+                    for (int dz = 1; dz <= 3; dz++) arch.set(x, y, cz - dz, Material.POLISHED_DEEPSLATE);
+                    if (tier > 0) arch.set(x, y + 1, cz - 3, Material.DEEPSLATE_BRICK_WALL);
                 }
             }
         }
-
-        sign(blockX1, GROUND_Y + 2, blockZ1 + 1,
-                "\u00a78\u00a7lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW) + " cells", "Two tiers", "");
+        // Stairs up to the second tier at the east end.
+        for (int i = 0; i < 6; i++) {
+            arch.placeStair(r[2] - 3, Y + i, r[1] + 3 + i, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.NORTH, false);
+            arch.set(r[2] - 2, Y + i, r[1] + 3 + i, Material.POLISHED_DEEPSLATE);
+        }
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§8§lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW * CELL_TIERS) + " cells", "Two tiers", "");
     }
 
     private void buildCell(int x, int y, int z, int number) {
         for (int dx = 0; dx < CELL_SIZE; dx++) {
             for (int dz = 0; dz < CELL_SIZE; dz++) {
+                arch.set(x + dx, y, z + dz, Material.POLISHED_DEEPSLATE);
+                arch.set(x + dx, y + 5, z + dz, Material.DEEPSLATE_TILES);
                 for (int dy = 1; dy <= 4; dy++) {
                     boolean wall = dx == 0 || dx == CELL_SIZE - 1 || dz == 0 || dz == CELL_SIZE - 1;
-                    if (dy == 4) {
-                        arch.set(x + dx, y + dy, z + dz, Material.DEEPSLATE_TILES);
-                    } else if (wall) {
-                        boolean front = dz == 0 && dx > 0 && dx < CELL_SIZE - 1;
-                        arch.set(x + dx, y + dy, z + dz,
-                                front ? Material.IRON_BARS : arch.pick(Architect.CELL_STONE));
-                    } else {
-                        arch.set(x + dx, y + dy, z + dz, Material.AIR);
-                    }
+                    boolean front = dz == 0 && dx > 0 && dx < CELL_SIZE - 1;
+                    arch.set(x + dx, y + dy, z + dz,
+                            !wall ? Material.AIR : front ? Material.IRON_BARS : arch.pick(Architect.CELL_STONE));
                 }
-                arch.set(x + dx, y, z + dz, Material.POLISHED_DEEPSLATE);
             }
         }
-        // Doorway, bunk, storage and a wall lantern — furnished rather than empty.
-        arch.set(x + 2, y + 1, z, Material.AIR);
-        arch.set(x + 2, y + 2, z, Material.AIR);
-        arch.placeStair(x + 2, y + 3, z, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.SOUTH, true);
-        arch.set(x + 1, y + 1, z + CELL_SIZE - 2, Material.RED_BED);
-        arch.placeSlab(x + 1, y + 2, z + CELL_SIZE - 3, Material.DEEPSLATE_TILE_SLAB, false);
+        // Door in the barred front.
+        arch.set(x + 3, y + 1, z, Material.AIR);
+        arch.set(x + 3, y + 2, z, Material.AIR);
+        arch.placeStair(x + 3, y + 3, z, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.SOUTH, true);
+        // Furnishings: proper two-block bed, storage, wall lantern.
+        placeBed(x + 2, y + 1, z + CELL_SIZE - 2, BlockFace.WEST);
         arch.set(x + CELL_SIZE - 2, y + 1, z + CELL_SIZE - 2, Material.BARREL);
         arch.set(x + CELL_SIZE - 2, y + 3, z + 1, Material.LANTERN);
-        sign(x + 3, y + 2, z, "\u00a77Cell", "\u00a7f#" + number, "", "");
+        sign(x + 5, y + 2, z + 1, BlockFace.SOUTH, "§7Cell", "§f#" + number, "", "");
     }
 
-    // ---- Mines and wards --------------------------------------------------
+    // ---- Crate hall ----
 
-    /**
-     * Rare-ore frequency climbs with rank: ~2% in Mine A up to ~12% in Mine Z, so rare blocks
-     * stay rare but become meaningfully more common the deeper you get.
-     */
+    private void registerCrateLocations() {
+        crateLocations.clear();
+        int[] r = CRATES;
+        int spacing = (r[2] - r[0]) / (CrateData.CRATES.size() + 1);
+        int i = 0;
+        for (CrateData.Crate crate : CrateData.CRATES.values()) {
+            i++;
+            crateLocations.put(new Location(world, r[0] + spacing * i, Y + 2, (r[1] + r[3]) / 2), crate.id);
+        }
+    }
+
+    private void buildCrateHall() {
+        int[] r = CRATES;
+        arch.room(r[0], r[1], r[2], r[3], Y, 8, Architect.CELL_STONE,
+                Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE,
+                Material.POLISHED_DIORITE, Material.POLISHED_BLACKSTONE,
+                Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS, Material.SEA_LANTERN);
+        for (Map.Entry<Location, String> e : crateLocations.entrySet()) {
+            Location l = e.getKey();
+            CrateData.Crate crate = CrateData.CRATES.get(e.getValue());
+            arch.set(l.getBlockX(), Y + 1, l.getBlockZ(), Material.CHISELED_DEEPSLATE);
+            arch.set(l.getBlockX(), Y + 2, l.getBlockZ(), Material.ENDER_CHEST);
+            arch.placeSlab(l.getBlockX() - 1, Y + 1, l.getBlockZ(), Material.POLISHED_DEEPSLATE_SLAB, false);
+            arch.placeSlab(l.getBlockX() + 1, Y + 1, l.getBlockZ(), Material.POLISHED_DEEPSLATE_SLAB, false);
+            sign(l.getBlockX(), Y + 3, l.getBlockZ() + 1, BlockFace.SOUTH, "§6§l" + crate.display, "Right-click", "with a key", "to open");
+        }
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§6§lCRATES", "Keys drop from", "mining and", "fishing.");
+    }
+
+    // ---- PvP: The Yard (off the hub) and ward pits ----
+
+    private void registerPvpZones() {
+        pvpZones.clear();
+        int[] r = YARD;
+        pvpZones.add(new PvpZoneManager.Zone("The Yard", r[0], Y, r[1], r[2], Y + 10, r[3]));
+        for (String rank : new String[]{"F", "M", "T"}) {
+            int[] p = pitRect(RankMineData.RANKS.get(rank));
+            if (p != null) pvpZones.add(new PvpZoneManager.Zone(rank + "-Ward Pit", p[0], Y, p[1], p[2], Y + 8, p[3]));
+        }
+    }
+
+    private int[] wardRect(RankMineData.Def d) { return new int[]{d.x1 - 24, -8, d.x1 - 4, 14}; }
+    private int[] pitRect(RankMineData.Def d) {
+        if (d == null) return null;
+        int[] w = wardRect(d);
+        return new int[]{w[0], -36, w[2], -16};
+    }
+
+    private void buildYard() {
+        buildArena(YARD, "The Yard", true);
+    }
+
+    private void buildWardPits() {
+        for (String rank : new String[]{"F", "M", "T"}) {
+            int[] p = pitRect(RankMineData.RANKS.get(rank));
+            if (p != null) buildArena(p, rank + "-Ward Pit", false);
+        }
+    }
+
+    private void buildArena(int[] r, String name, boolean grand) {
+        arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.RED_WOOL, Material.RED_CONCRETE, 15));
+        // Bordered floor ring and low walls, open-topped so fights are visible.
+        for (int x = r[0]; x <= r[2]; x++) { arch.set(x, Y, r[1], Material.RED_CONCRETE); arch.set(x, Y, r[3], Material.RED_CONCRETE); }
+        for (int z = r[1]; z <= r[3]; z++) { arch.set(r[0], Y, z, Material.RED_CONCRETE); arch.set(r[2], Y, z, Material.RED_CONCRETE); }
+        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.Palette.of(Material.RED_CONCRETE, Material.RED_TERRACOTTA, 20),
+                Material.DEEPSLATE_BRICKS, Material.POLISHED_BLACKSTONE, 6);
+        for (int[] c : new int[][]{{r[0], r[1]}, {r[0], r[3]}, {r[2], r[1]}, {r[2], r[3]}}) {
+            for (int dy = 5; dy <= 7; dy++) arch.set(c[0], Y + dy, c[1], Material.DEEPSLATE_BRICKS);
+            arch.set(c[0], Y + 8, c[1], Material.REDSTONE_LAMP);
+        }
+        if (grand) {
+            int mx = (r[0] + r[2]) / 2, mz = (r[1] + r[3]) / 2;
+            for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+                if (Math.abs(dx) == 2 || Math.abs(dz) == 2) arch.set(mx + dx, Y + 1, mz + dz, Material.DEEPSLATE_BRICK_WALL);
+            }
+        }
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§c§lPVP ZONE", name, "Drop all items", "on death!");
+    }
+
+    // ---- Mines and wards ----
+
     private double rarePercentFor(String rank) {
         int idx = 0, i = 0;
-        for (String r : RankMineData.RANKS.keySet()) {
-            if (r.equals(rank)) { idx = i; break; }
-            i++;
-        }
-        int total = RankMineData.RANKS.size() - 1;
-        return 2.0 + (10.0 * idx / Math.max(1, total));
+        for (String r : RankMineData.RANKS.keySet()) { if (r.equals(rank)) { idx = i; break; } i++; }
+        return 2.0 + (10.0 * idx / Math.max(1, RankMineData.RANKS.size() - 1));
     }
 
     private void buildMine(RankMineData.Def d) {
-        Material filler = safeMaterial(d.filler);
-        Material common = safeMaterial(d.common);
-        Material rare = safeMaterial(d.rare);
+        Material filler = safeMaterial(d.filler), common = safeMaterial(d.common), rare = safeMaterial(d.rare);
         double rarePct = rarePercentFor(d.rank);
-
-        for (int x = d.x1; x <= d.x2; x++) {
-            for (int z = d.z1; z <= d.z2; z++) {
-                for (int y = d.y1; y <= d.y2; y++) {
-                    boolean edge = x == d.x1 || x == d.x2 || z == d.z1 || z == d.z2
-                            || y == d.y1 || y == d.y2;
-                    Block b = world.getBlockAt(x, y, z);
-                    b.setType(edge ? Material.BEDROCK : pickOre(filler, common, rare, rarePct));
-                }
-            }
+        for (int x = d.x1; x <= d.x2; x++) for (int z = d.z1; z <= d.z2; z++) for (int y = d.y1; y <= d.y2; y++) {
+            boolean edge = x == d.x1 || x == d.x2 || z == d.z1 || z == d.z2 || y == d.y1 || y == d.y2;
+            arch.set(x, y, z, edge ? Material.BEDROCK : pickOre(filler, common, rare, rarePct));
         }
-
-        int entranceZ = d.z1 + ENTRANCE_Z;
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(d.x1, d.y1 + dy, entranceZ + dz).setType(Material.AIR);
-                world.getBlockAt(d.x2, d.y1 + dy, entranceZ + dz).setType(Material.AIR);
-            }
-        }
-
         placeMineLights(d);
-
-        Block signBlock = world.getBlockAt(d.x1 - 1, d.y1 + 1, entranceZ);
-        signBlock.setType(Material.OAK_SIGN);
-        if (signBlock.getState() instanceof Sign s) {
-            s.getSide(Side.FRONT).setLine(0, "[Sell]");
-            s.getSide(Side.FRONT).setLine(1, "Mine " + d.rank + " ores");
-            s.getSide(Side.FRONT).setLine(2, "Right-click");
-            s.getSide(Side.FRONT).setLine(3, "to sell held");
-            s.update(true);
-        }
+        // Sell sign on the ward-facing wall, beside the entrance.
+        sign(d.x1 - 1, Y + 2, d.z1 + ENTRANCE_Z + 2, BlockFace.WEST, "§a[Sell]", "Mine " + d.rank + " ores", "Right-click", "holding ore");
     }
 
-    /** A detailed antechamber fronting each mine - the rank's ward. */
     private void buildWard(RankMineData.Def d) {
-        int entranceZ = d.z1 + ENTRANCE_Z;
-        int wx2 = d.x1 - 2;
-        int wx1 = wx2 - 13;
-        int wz1 = entranceZ - 7;
-        int wz2 = entranceZ + 7;
-
-        arch.room(wx1, wz1, wx2, wz2, d.y1, 8,
-                Architect.WARD_INDUSTRIAL,
-                Material.POLISHED_BASALT,
-                Material.CHISELED_DEEPSLATE,
-                Material.POLISHED_DEEPSLATE,
-                Material.POLISHED_BLACKSTONE,
-                Material.DEEPSLATE_TILES,
-                Material.DEEPSLATE_TILE_STAIRS,
-                Material.SEA_LANTERN);
-
-        arch.doorway(wx1, d.y1 + 1, entranceZ, true, 1, 4, Material.CHISELED_DEEPSLATE);
-        arch.doorway(wx2, d.y1 + 1, entranceZ, true, 1, 4, Material.CHISELED_DEEPSLATE);
-
-        // Rails flanking the route through, so the ward guides movement toward the mine.
-        for (int x = wx1 + 1; x < wx2; x++) {
-            arch.set(x, d.y1 + 1, entranceZ - 3, Material.DEEPSLATE_BRICK_WALL);
-            arch.set(x, d.y1 + 1, entranceZ + 3, Material.DEEPSLATE_BRICK_WALL);
+        int[] w = wardRect(d);
+        arch.room(w[0], w[1], w[2], w[3], Y, 8, Architect.WARD_INDUSTRIAL,
+                Material.POLISHED_BASALT, Material.CHISELED_DEEPSLATE,
+                Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE,
+                Material.DEEPSLATE_TILES, Material.DEEPSLATE_TILE_STAIRS, Material.SEA_LANTERN);
+        for (int x = w[0] + 1; x < w[2]; x++) {
+            arch.set(x, Y + 1, ENTRANCE_Z - 3, Material.DEEPSLATE_BRICK_WALL);
+            arch.set(x, Y + 1, ENTRANCE_Z + 3, Material.DEEPSLATE_BRICK_WALL);
         }
-
-        // Rank marker column.
-        int bx = wx1 + 3, bz = wz1 + 2;
-        for (int dy = 1; dy <= 5; dy++) {
-            arch.set(bx, d.y1 + dy, bz, Material.POLISHED_BASALT);
-        }
-        arch.set(bx, d.y1 + 6, bz, Material.SEA_LANTERN);
-
-        sign(wx1 + 2, d.y1 + 2, wz1 + 1,
-                "\u00a76\u00a7l" + d.rank + "-WARD",
-                "Mine " + d.rank,
-                "Rare: " + prettyName(d.rare),
-                String.format("%.0f%% rare", rarePercentFor(d.rank)));
+        int bx = w[0] + 3, bz = w[1] + 2;
+        for (int dy = 1; dy <= 5; dy++) arch.set(bx, Y + dy, bz, Material.POLISHED_BASALT);
+        arch.set(bx, Y + 6, bz, Material.SEA_LANTERN);
+        sign(w[0] + 1, Y + 2, w[1] + 4, BlockFace.EAST, "§6§l" + d.rank + "-WARD", "Mine " + d.rank,
+                "Rare: " + prettyName(d.rare), String.format("%.0f%% rare", rarePercentFor(d.rank)));
     }
 
-    private void connectMineWalkways() {
+    /** Wide, railed, lit walkways linking hub → A-Ward and every mine → next ward. */
+    private void buildWardWalkways() {
         List<RankMineData.Def> ordered = new ArrayList<>();
-        for (RankMineData.Def def : RankMineData.RANKS.values()) {
-            if (!def.rank.equals("FREE")) ordered.add(def);
+        for (RankMineData.Def d : RankMineData.RANKS.values()) if (!d.rank.equals("FREE")) ordered.add(d);
+
+        // Hub east gate to A-Ward.
+        walkway(HUB[2] + 1, wardRect(ordered.get(0))[0] - 1, ENTRANCE_Z, 3);
+        for (int i = 0; i < ordered.size(); i++) {
+            RankMineData.Def d = ordered.get(i);
+            int[] w = wardRect(d);
+            walkway(w[2] + 1, d.x1 - 1, ENTRANCE_Z, 1);                  // ward → its mine
+            if (i + 1 < ordered.size()) {
+                walkway(d.x2 + 1, wardRect(ordered.get(i + 1))[0] - 1, ENTRANCE_Z, 2); // mine → next ward
+            }
         }
-        for (int i = 0; i < ordered.size() - 1; i++) {
-            RankMineData.Def a = ordered.get(i);
-            RankMineData.Def b = ordered.get(i + 1);
-            int z = a.z1 + ENTRANCE_Z;
-            for (int x = a.x2 + 1; x < b.x1; x++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    world.getBlockAt(x, a.y1, z + dz).setType(Material.SMOOTH_STONE);
-                }
+        // Path from the hub walkway south to the fishing area.
+        for (int z = FISH_PATH[1]; z <= FISH_PATH[3]; z++) {
+            for (int x = FISH_PATH[0]; x <= FISH_PATH[2]; x++) {
+                boolean edge = x == FISH_PATH[0] || x == FISH_PATH[2];
+                arch.set(x, Y, z, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
+                if (edge) arch.set(x, Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);
+            }
+            if (z % 8 == 0) { arch.set(FISH_PATH[0] - 1, Y + 2, z, Material.LANTERN); }
+        }
+    }
+
+    private void walkway(int x1, int x2, int centreZ, int halfWidth) {
+        if (x2 < x1) return;
+        for (int x = x1; x <= x2; x++) {
+            for (int dz = -halfWidth; dz <= halfWidth; dz++) {
+                boolean edge = Math.abs(dz) == halfWidth;
+                arch.set(x, Y, centreZ + dz, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
+                if (edge) arch.set(x, Y + 1, centreZ + dz, Material.POLISHED_BLACKSTONE_WALL);
+            }
+            if ((x - x1) % 8 == 4) {
+                arch.set(x, Y + 2, centreZ - halfWidth, Material.LANTERN);
+                arch.set(x, Y + 2, centreZ + halfWidth, Material.LANTERN);
             }
         }
     }
 
-    // ---- Fishing area -----------------------------------------------------
+    // ---- Fishing area ----
 
-    /** Assigns each pond its bounds. Cheap; runs every boot so pond lookups work. */
     private void registerPondBounds() {
         int x = 0;
         for (FishingData.Pond pond : FishingData.PONDS.values()) {
-            int size = 24 + pond.tier * 2;
-            pond.x1 = x;
-            pond.x2 = x + size;
-            pond.z1 = FISH_Z_BASE - size;
-            pond.z2 = FISH_Z_BASE;
-            pond.y = GROUND_Y;
-            x = pond.x2 + 10;
+            int size = 22 + pond.tier * 2;
+            pond.x1 = x; pond.x2 = x + size;
+            pond.z2 = FISH_Z2 - 12; pond.z1 = pond.z2 - size;
+            pond.y = Y;
+            x = pond.x2 + 12;
         }
     }
 
     private void buildFishingArea() {
-        // One shared open-air area: every pond sits on the same walkable platform so players
-        // fish alongside each other rather than in isolated instances.
-        int platformX1 = -10;
-        int platformX2 = 0;
-        int minZ = FISH_Z_BASE;
-        for (FishingData.Pond pond : FishingData.PONDS.values()) {
-            platformX2 = Math.max(platformX2, pond.x2 + 6);
-            minZ = Math.min(minZ, pond.z1 - 6);
-        }
-        floor(platformX1, minZ, platformX2, FISH_Z_BASE + 8, GROUND_Y, Material.GRASS_BLOCK);
-        perimeter(platformX1, minZ, platformX2, FISH_Z_BASE + 8, GROUND_Y + 1, GROUND_Y + 4,
-                Material.STONE_BRICK_WALL);
-
-        for (FishingData.Pond pond : FishingData.PONDS.values()) {
-            digPond(pond);
-        }
-
-        // Path linking the fishing area back to the prison walkway.
-        for (int z = FISH_Z_BASE + 1; z <= ENTRANCE_Z; z++) {
-            for (int dx = -2; dx <= 2; dx++) {
-                world.getBlockAt(2 + dx, GROUND_Y, z).setType(Material.SMOOTH_STONE);
-            }
-        }
+        int x1 = -20, x2 = 440;
+        arch.fillFlat(x1, FISH_Z1, x2, FISH_Z2, Y, Architect.Palette.of(Material.GRASS_BLOCK, Material.MOSS_BLOCK, 12, Material.COARSE_DIRT, 6));
+        // Perimeter wall with sandstone posts so the edge reads as a promenade, not a cliff.
+        arch.detailedWall(x1, Y + 1, FISH_Z1, x2, FISH_Z2, 3, Architect.FISHING_STONE,
+                Material.CHISELED_SANDSTONE, Material.SMOOTH_SANDSTONE, 8);
+        for (int x = x1; x <= x2; x += 8) { arch.set(x, Y + 4, FISH_Z1, Material.LANTERN); arch.set(x, Y + 4, FISH_Z2, Material.LANTERN); }
+        for (FishingData.Pond pond : FishingData.PONDS.values()) digPond(pond);
+        // A sell hut with a fish sign near the entrance path.
+        sign(FISH_PATH[2] + 2, Y + 2, FISH_Z2 - 2, BlockFace.SOUTH, "§b§lFISHING", "/fishing ponds", "/sellfish to", "cash in");
     }
 
     private void digPond(FishingData.Pond pond) {
-        for (int x = pond.x1; x <= pond.x2; x++) {
-            for (int z = pond.z1; z <= pond.z2; z++) {
-                boolean rim = x == pond.x1 || x == pond.x2 || z == pond.z1 || z == pond.z2;
-                if (rim) {
-                    world.getBlockAt(x, GROUND_Y, z).setType(Material.STONE_BRICKS);
-                    continue;
-                }
-                world.getBlockAt(x, GROUND_Y, z).setType(Material.WATER);
-                world.getBlockAt(x, GROUND_Y - 1, z).setType(Material.WATER);
-                world.getBlockAt(x, GROUND_Y - 2, z).setType(tierBed(pond.tier));
-            }
+        for (int x = pond.x1; x <= pond.x2; x++) for (int z = pond.z1; z <= pond.z2; z++) {
+            boolean rim = x == pond.x1 || x == pond.x2 || z == pond.z1 || z == pond.z2;
+            if (rim) { arch.set(x, Y, z, Material.SMOOTH_SANDSTONE); continue; }
+            arch.set(x, Y, z, Material.WATER);
+            arch.set(x, Y - 1, z, Material.WATER);
+            arch.set(x, Y - 2, z, tierBed(pond.tier));
         }
-        sign(pond.x1 + 2, GROUND_Y + 1, pond.z2 + 1,
-                "§b§l" + pond.name,
-                "Tier " + pond.tier,
-                "Req. level " + pond.requiredLevel,
-                "/fishing");
+        sign(pond.x1 + 2, Y + 2, pond.z2 + 2, BlockFace.SOUTH, "§b§l" + pond.name, "Tier " + pond.tier, "Req. level " + pond.requiredLevel, "/fishing");
     }
 
-    /** Pond floor material shifts with tier so higher ponds read as more dangerous. */
     private Material tierBed(int tier) {
         if (tier <= 2) return Material.GRAVEL;
         if (tier <= 4) return Material.SAND;
@@ -553,213 +521,81 @@ public class WorldBuilder {
         return Material.SCULK;
     }
 
-    // ---- Crates -----------------------------------------------------------
+    // ---- Doorways: carved last so nothing can brick them over ----
 
-    /** Records where each crate block sits so the listener can hook them up. */
-    private final Map<Location, String> crateLocations = new LinkedHashMap<>();
+    private void carveAllDoorways() {
+        Material f = Material.CHISELED_STONE_BRICKS;
+        arch.doorway(STARTER[2], Y + 1, 0, true, 1, 4, f);                 // yard → corridor
+        arch.doorway(CORRIDOR[0], Y + 1, 0, true, 1, 4, f);                 // corridor west (same wall)
+        arch.doorway(CORRIDOR[2], Y + 1, 0, true, 1, 4, f);                 // corridor → hub
+        arch.doorway(HUB[0], Y + 1, 0, true, 1, 4, f);                      // hub west
+        arch.doorway(HUB[2], Y + 1, ENTRANCE_Z, true, 3, 6, f);             // hub → wards: grand gate
+        int hubMidX = (HUB[0] + HUB[2]) / 2;
+        arch.doorway(hubMidX, Y + 1, HUB[3], false, 2, 5, f);               // hub → cell block
+        arch.doorway(hubMidX, Y + 1, CELLS[1], false, 2, 5, f);
+        int crateMid = (CRATES[0] + CRATES[2]) / 2, yardMid = (YARD[0] + YARD[2]) / 2;
+        arch.doorway(crateMid, Y + 1, HUB[1], false, 1, 4, f);              // hub → crate hall
+        arch.doorway(crateMid, Y + 1, CRATES[3], false, 1, 4, f);
+        arch.doorway(yardMid, Y + 1, HUB[1], false, 1, 4, f);               // hub → yard
+        arch.doorway(yardMid, Y + 1, YARD[3], false, 1, 4, f);
+        // Connector paths between hub and its three annexes.
+        connector(hubMidX, HUB[3] + 1, CELLS[1] - 1, 2);
+        connector(crateMid, CRATES[3] + 1, HUB[1] - 1, 1);
+        connector(yardMid, YARD[3] + 1, HUB[1] - 1, 1);
 
-    public Map<Location, String> getCrateLocations() { return crateLocations; }
-
-    /** A small crate hall off the hub, with one podium per crate type. */
-    /** Computes crate podium coordinates. Registration-only when placeBlocks is false. */
-    private void registerCrateLocations() {
-        crateLocations.clear();
-        int rx1 = HUB_X1 + 2, rx2 = HUB_X1 + 22;
-        int rz1 = HUB_Z1 - 22, rz2 = HUB_Z1 - 2;
-        int i = 0;
-        int spacing = (rx2 - rx1) / (CrateData.CRATES.size() + 1);
-        for (CrateData.Crate crate : CrateData.CRATES.values()) {
-            i++;
-            int cx = rx1 + spacing * i;
-            int cz = (rz1 + rz2) / 2;
-            crateLocations.put(new Location(world, cx, GROUND_Y + 2, cz), crate.id);
-        }
-    }
-
-    private void buildCrateRoom() {
-        int rx1 = HUB_X1 + 2, rx2 = HUB_X1 + 22;
-        int rz1 = HUB_Z1 - 22, rz2 = HUB_Z1 - 2;
-        int y = GROUND_Y;
-
-        floor(rx1, rz1, rx2, rz2, y, Material.POLISHED_DIORITE);
-        hollow(rx1, rz1, rx2, rz2, y + 1, y + 6);
-        perimeter(rx1, rz1, rx2, rz2, y + 1, y + 6, Material.DEEPSLATE_BRICKS);
-        ceiling(rx1, rz1, rx2, rz2, y + 7, Material.DEEPSLATE_BRICKS);
-        lightGrid(rx1, rz1, rx2, rz2, y + 6, 5, Material.SEA_LANTERN);
-
-        // Doorway back into the hub.
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(rx1 + 10 + dx, y + dy, rz2).setType(Material.AIR);
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.rank.equals("FREE")) continue;
+            int[] w = wardRect(d);
+            arch.doorway(w[0], Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward west
+            arch.doorway(w[2], Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward east
+            for (int dz = -1; dz <= 1; dz++) for (int dy = 1; dy <= 3; dy++) {
+                arch.set(d.x1, Y + dy, d.z1 + ENTRANCE_Z + dz, Material.AIR);               // mine west door
+                arch.set(d.x2, Y + dy, d.z1 + ENTRANCE_Z + dz, Material.AIR);               // mine east door
+            }
+            int[] p = pitRect(d);
+            if (p != null && List.of("F", "M", "T").contains(d.rank)) {
+                int mid = (w[0] + w[2]) / 2;
+                arch.doorway(mid, Y + 1, w[1], false, 1, 4, Material.CHISELED_DEEPSLATE);  // ward south
+                arch.doorway(mid, Y + 1, p[3], false, 1, 4, Material.CHISELED_DEEPSLATE);  // pit north
+                connector(mid, p[3] + 1, w[1] - 1, 1);
             }
         }
-
-        // One podium per crate, evenly spaced along the room.
-        int i = 0;
-        int spacing = (rx2 - rx1) / (CrateData.CRATES.size() + 1);
-        for (CrateData.Crate crate : CrateData.CRATES.values()) {
-            i++;
-            int cx = rx1 + spacing * i;
-            int cz = (rz1 + rz2) / 2;
-            // Podium block with the crate chest on top.
-            world.getBlockAt(cx, y + 1, cz).setType(Material.CHISELED_DEEPSLATE);
-            Block crateBlock = world.getBlockAt(cx, y + 2, cz);
-            crateBlock.setType(Material.ENDER_CHEST);
-            crateLocations.put(crateBlock.getLocation(), crate.id);
-            // Accent lighting around each podium.
-            world.getBlockAt(cx - 1, y + 1, cz).setType(Material.POLISHED_DEEPSLATE_SLAB);
-            world.getBlockAt(cx + 1, y + 1, cz).setType(Material.POLISHED_DEEPSLATE_SLAB);
-            sign(cx, y + 2, cz - 1, "\u00a76\u00a7l" + crate.display, "Right-click", "with a key", "to open");
-        }
-
-        sign(rx1 + 10, y + 2, rz1 + 1, "\u00a76\u00a7lCRATES", "Keys drop from", "mining and", "fishing.");
+        // Fishing path into the fishing area's north wall.
+        arch.doorway((FISH_PATH[0] + FISH_PATH[2]) / 2, Y + 1, FISH_Z2, false, 2, 4, Material.CHISELED_SANDSTONE);
     }
 
-    // ---- PvP arenas -------------------------------------------------------
-
-    private final List<PvpZoneManager.Zone> pvpZones = new ArrayList<>();
-
-    public List<PvpZoneManager.Zone> getPvpZones() { return pvpZones; }
-
-    /**
-     * PvP arenas placed through the prison. Floors are lined with red wool, the long-standing
-     * prison-server signal for "you can be killed and looted here".
-     */
-    private void buildPvpArenas(boolean placeBlocks) {
-        pvpZones.clear();
-        // A main arena just off the hub.
-        addArena("The Yard", HUB_X1 + 4, GROUND_Y, HUB_Z2 + 6, HUB_X1 + 30, GROUND_Y + 10,
-                HUB_Z2 + 30, true, placeBlocks);
-
-        // Smaller contested arenas out among the wards, so higher ranks have their own.
-        String[] wardRanks = {"F", "M", "T"};
-        for (String rank : wardRanks) {
-            RankMineData.Def d = RankMineData.RANKS.get(rank);
-            if (d == null) continue;
-            int ax1 = d.x1 - 14;
-            int az1 = d.z1 + ENTRANCE_Z + 8;
-            addArena(rank + "-Ward Pit", ax1, d.y1, az1, ax1 + 18, d.y1 + 8, az1 + 18,
-                    false, placeBlocks);
-        }
-    }
-
-    private void addArena(String name, int x1, int y, int z1, int x2, int yTop, int z2,
-                          boolean grand, boolean placeBlocks) {
-        pvpZones.add(new PvpZoneManager.Zone(name, x1, y, z1, x2, yTop, z2));
-        if (!placeBlocks) return;
-        // Red wool floor — the visual marker players recognise instantly.
-        floor(x1, z1, x2, z2, y, Material.RED_WOOL);
-        // Border ring in darker red so the boundary is unmistakable.
-        perimeter(x1, z1, x2, z2, y, y, Material.RED_CONCRETE);
-        // Low walls so fights stay inside, open-topped for visibility.
-        perimeter(x1, z1, x2, z2, y + 1, y + 3, Material.RED_CONCRETE);
-        hollow(x1 + 1, z1 + 1, x2 - 1, z2 - 1, y + 1, yTop);
-
-        // Corner pillars and lighting for a built-on-purpose look.
-        for (int[] corner : new int[][]{{x1, z1}, {x1, z2}, {x2, z1}, {x2, z2}}) {
-            for (int dy = 1; dy <= 5; dy++) {
-                world.getBlockAt(corner[0], y + dy, corner[1]).setType(Material.DEEPSLATE_BRICKS);
+    /** A short floored, railed path along Z between two doorways. */
+    private void connector(int centreX, int z1, int z2, int halfWidth) {
+        for (int z = Math.min(z1, z2); z <= Math.max(z1, z2); z++) {
+            for (int dx = -halfWidth - 1; dx <= halfWidth + 1; dx++) {
+                boolean edge = Math.abs(dx) == halfWidth + 1;
+                arch.set(centreX + dx, Y, z, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
+                for (int dy = 1; dy <= 4; dy++) arch.set(centreX + dx, Y + dy, z, edge ? Material.STONE_BRICKS : Material.AIR);
+                arch.set(centreX + dx, Y + 5, z, Material.STONE_BRICKS);
             }
-            world.getBlockAt(corner[0], y + 6, corner[1]).setType(Material.REDSTONE_LAMP);
-        }
-
-        if (grand) {
-            // Cover in the middle of the main arena so fights aren't pure open ground.
-            int mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
-            for (int dx = -2; dx <= 2; dx++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    if (Math.abs(dx) == 2 || Math.abs(dz) == 2) {
-                        world.getBlockAt(mx + dx, y + 1, mz + dz).setType(Material.DEEPSLATE_BRICK_WALL);
-                    }
-                }
-            }
-        }
-
-        // Entrances on two sides.
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(x1, y + dy, (z1 + z2) / 2 + dz).setType(Material.AIR);
-                world.getBlockAt(x2, y + dy, (z1 + z2) / 2 + dz).setType(Material.AIR);
-            }
-        }
-
-        sign(x1 + 2, y + 2, z1 + 1, "\u00a7c\u00a7lPVP ZONE", name, "Drop all items", "on death!");
-    }
-
-    // ---- Shared helpers ---------------------------------------------------
-
-    private void floor(int x1, int z1, int x2, int z2, int y, Material mat) {
-        for (int x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
-            for (int z = Math.min(z1, z2); z <= Math.max(z1, z2); z++) {
-                world.getBlockAt(x, y, z).setType(mat);
-            }
+            if (z % 4 == 0) arch.set(centreX, Y + 4, z, Material.LANTERN);
         }
     }
 
-    private void ceiling(int x1, int z1, int x2, int z2, int y, Material mat) {
-        floor(x1, z1, x2, z2, y, mat);
+    // ---- Helpers ----
+
+    private void sign(int x, int y, int z, BlockFace facing, String... lines) {
+        signs.add(new PendingSign(x, y, z, facing, lines));
     }
 
-    private void hollow(int x1, int z1, int x2, int z2, int yFrom, int yTo) {
-        for (int x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
-            for (int z = Math.min(z1, z2); z <= Math.max(z1, z2); z++) {
-                for (int y = yFrom; y <= yTo; y++) {
-                    world.getBlockAt(x, y, z).setType(Material.AIR);
-                }
-            }
-        }
-    }
-
-    private void perimeter(int x1, int z1, int x2, int z2, int yFrom, int yTo, Material mat) {
-        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                if (x != minX && x != maxX && z != minZ && z != maxZ) continue;
-                for (int y = yFrom; y <= yTo; y++) {
-                    world.getBlockAt(x, y, z).setType(mat);
-                }
-            }
-        }
-    }
-
-    private void lightGrid(int x1, int z1, int x2, int z2, int y, int spacing, Material mat) {
-        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
-        for (int x = minX + 2; x < maxX; x += spacing) {
-            for (int z = minZ + 2; z < maxZ; z += spacing) {
-                world.getBlockAt(x, y, z).setType(mat);
-            }
-        }
-    }
-
-    /** Carves a doorway of the given half-width and height centred on (x, z). */
-    private void carve(int x, int y, int z, int halfWidth, int height) {
-        for (int dz = -halfWidth; dz <= halfWidth; dz++) {
-            for (int dy = 0; dy < height; dy++) {
-                world.getBlockAt(x, y + dy, z + dz).setType(Material.AIR);
-            }
-        }
-    }
-
-    private void sign(int x, int y, int z, String l1, String l2, String l3, String l4) {
-        Block b = world.getBlockAt(x, y, z);
-        b.setType(Material.OAK_SIGN);
-        if (b.getState() instanceof Sign s) {
-            s.getSide(Side.FRONT).setLine(0, l1);
-            s.getSide(Side.FRONT).setLine(1, l2);
-            s.getSide(Side.FRONT).setLine(2, l3);
-            s.getSide(Side.FRONT).setLine(3, l4);
-            s.update(true);
-        }
+    private void placeBed(int x, int y, int z, BlockFace facing) {
+        Block foot = world.getBlockAt(x, y, z);
+        Block head = foot.getRelative(facing);
+        foot.setType(Material.RED_BED, false);
+        head.setType(Material.RED_BED, false);
+        if (foot.getBlockData() instanceof Bed fb) { fb.setPart(Bed.Part.FOOT); fb.setFacing(facing); foot.setBlockData(fb, false); }
+        if (head.getBlockData() instanceof Bed hb) { hb.setPart(Bed.Part.HEAD); hb.setFacing(facing); head.setBlockData(hb, false); }
     }
 
     private String prettyName(String raw) {
-        String[] parts = raw.toLowerCase().split("_");
         StringBuilder sb = new StringBuilder();
-        for (String part : parts) {
-            if (part.isEmpty()) continue;
-            sb.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1)).append(" ");
+        for (String part : raw.toLowerCase().split("_")) {
+            if (!part.isEmpty()) sb.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1)).append(" ");
         }
         String out = sb.toString().trim();
         return out.length() > 15 ? out.substring(0, 15) : out;
@@ -768,64 +604,35 @@ public class WorldBuilder {
     private Material pickOre(Material filler, Material common, Material rare, double rarePct) {
         double r = Math.random() * 100.0;
         if (r < rarePct) return rare;
-        double commonPct = 25.0;
-        if (r < rarePct + commonPct) return common;
+        if (r < rarePct + 25.0) return common;
         return filler;
     }
 
     private void placeMineLights(RankMineData.Def d) {
-        for (int x = d.x1 + 4; x < d.x2; x += 8) {
-            for (int z = d.z1 + 4; z < d.z2; z += 8) {
-                world.getBlockAt(x, d.y2 - 1, z).setType(Material.GLOWSTONE);
-            }
+        for (int x = d.x1 + 4; x < d.x2; x += 8) for (int z = d.z1 + 4; z < d.z2; z += 8) {
+            arch.set(x, d.y2 - 1, z, Material.GLOWSTONE);
         }
     }
 
     private void setupWorldBorder() {
-        int minX = STARTER_X1 - 20, maxX = HUB_X2, minZ = -30, maxZ = 30;
-        for (int[] b : mineBounds.values()) {
-            minX = Math.min(minX, b[0]);
-            maxX = Math.max(maxX, b[3]);
-            minZ = Math.min(minZ, b[2]);
-            maxZ = Math.max(maxZ, b[5]);
-        }
-        for (FishingData.Pond pond : FishingData.PONDS.values()) {
-            minX = Math.min(minX, pond.x1);
-            maxX = Math.max(maxX, pond.x2);
-            minZ = Math.min(minZ, pond.z1);
-            maxZ = Math.max(maxZ, pond.z2);
-        }
-        maxZ = Math.max(maxZ, CELL_Z_START + (CELL_ROWS * CELL_SIZE) + 20);
-        double centerX = (minX + maxX) / 2.0;
-        double centerZ = (minZ + maxZ) / 2.0;
-        double size = Math.max(maxX - minX, maxZ - minZ) + 80;
-        world.getWorldBorder().setCenter(centerX, centerZ);
-        world.getWorldBorder().setSize(size);
+        int minX = STARTER[0] - 20, maxX = lastMineX2() + 40, minZ = FISH_Z1 - 20, maxZ = CELLS[3] + 20;
+        for (int[] b : mineBounds.values()) maxZ = Math.max(maxZ, b[5] + 20);
+        world.getWorldBorder().setCenter((minX + maxX) / 2.0, (minZ + maxZ) / 2.0);
+        world.getWorldBorder().setSize(Math.max(maxX - minX, maxZ - minZ) + 40);
     }
 
     private Material safeMaterial(String name) {
-        try {
-            return Material.valueOf(name);
-        } catch (IllegalArgumentException e) {
-            return Material.STONE;
-        }
+        try { return Material.valueOf(name); } catch (IllegalArgumentException e) { return Material.STONE; }
     }
 
-    /** Called by MineResetTask to refill a mine's interior once it's mostly emptied out. */
     public void resetMine(String rank) {
         int[] b = mineBounds.get(rank);
         if (b == null) return;
         RankMineData.Def d = RankMineData.RANKS.get(rank);
-        Material filler = safeMaterial(d.filler);
-        Material common = safeMaterial(d.common);
-        Material rare = safeMaterial(d.rare);
+        Material filler = safeMaterial(d.filler), common = safeMaterial(d.common), rare = safeMaterial(d.rare);
         double rarePct = rarePercentFor(rank);
-        for (int x = b[0] + 1; x < b[3]; x++) {
-            for (int z = b[2] + 1; z < b[5]; z++) {
-                for (int y = b[1] + 1; y < b[4]; y++) {
-                    world.getBlockAt(x, y, z).setType(pickOre(filler, common, rare, rarePct));
-                }
-            }
+        for (int x = b[0] + 1; x < b[3]; x++) for (int z = b[2] + 1; z < b[5]; z++) for (int y = b[1] + 1; y < b[4]; y++) {
+            world.getBlockAt(x, y, z).setType(pickOre(filler, common, rare, rarePct), false);
         }
         placeMineLights(d);
     }
@@ -833,15 +640,10 @@ public class WorldBuilder {
     public double percentRemaining(String rank) {
         int[] b = mineBounds.get(rank);
         if (b == null) return 100;
-        int total = 0, filled = 0;
-        int step = Math.max(1, (b[3] - b[0]) / 20);
-        for (int x = b[0] + 1; x < b[3]; x += step) {
-            for (int z = b[2] + 1; z < b[5]; z += step) {
-                for (int y = b[1] + 1; y < b[4]; y += 2) {
-                    total++;
-                    if (world.getBlockAt(x, y, z).getType() != Material.AIR) filled++;
-                }
-            }
+        int total = 0, filled = 0, step = Math.max(1, (b[3] - b[0]) / 20);
+        for (int x = b[0] + 1; x < b[3]; x += step) for (int z = b[2] + 1; z < b[5]; z += step) for (int y = b[1] + 1; y < b[4]; y += 2) {
+            total++;
+            if (world.getBlockAt(x, y, z).getType() != Material.AIR) filled++;
         }
         return total == 0 ? 100 : (100.0 * filled / total);
     }

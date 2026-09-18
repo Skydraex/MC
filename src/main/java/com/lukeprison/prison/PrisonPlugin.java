@@ -1,6 +1,7 @@
 package com.lukeprison.prison;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -50,7 +51,24 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         fishingManager = new FishingManager(this);
         fishingManager.load();
 
-        World world = Bukkit.getWorlds().get(0);
+        // The prison lives in its own void world so it floats in the sky with no terrain.
+        // Created by the plugin itself, so no server config needs editing.
+        World world = Bukkit.getWorld("prison");
+        if (world == null) {
+            world = new org.bukkit.WorldCreator("prison")
+                    .generator(new VoidGenerator())
+                    .environment(World.Environment.NORMAL)
+                    .createWorld();
+        }
+        if (world == null) {
+            getLogger().severe("Could not create the prison world. Disabling.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        world.setTime(6000);
+        world.setGameRule(org.bukkit.GameRule.DO_DAYLIGHT_CYCLE, false);
+        world.setGameRule(org.bukkit.GameRule.DO_WEATHER_CYCLE, false);
+        world.setGameRule(org.bukkit.GameRule.DO_MOB_SPAWNING, false);
 
         worldBuilder = new WorldBuilder(this, world);
         // Bounds are registered every boot (cheap, no block placement). The full build runs
@@ -96,8 +114,11 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
                 new ProtectionListener(this, worldBuilder.getMineBounds()), this);
         getServer().getPluginManager().registerEvents(this, this);
 
-        // Spawn quest NPCs a tick later so the world is fully ready.
-        Bukkit.getScheduler().runTaskLater(this, npcManager::spawnNpcs, 40L);
+        // A moment after the world is ready: sync sign text to clients, then spawn NPCs.
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            worldBuilder.applySigns();
+            npcManager.spawnNpcs();
+        }, 40L);
 
         getCommand("rankup").setExecutor(new RankUpCommand(this, ranksGUI));
         getCommand("rank").setExecutor(new RankInfoCommand(this));
@@ -111,6 +132,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getCommand("sellfish").setExecutor(new FishingCommands.SellFish(this));
         getCommand("spawn").setExecutor(new FishingCommands.Spawn(this));
         getCommand("coinflip").setExecutor(new CoinflipManager.Cmd(coinflipManager));
+        getCommand("prisonadmin").setExecutor(new AdminCommands(this));
 
         resetTask = new MineResetTask(this, worldBuilder);
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
@@ -134,7 +156,21 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
-        Bukkit.getScheduler().runTaskLater(this, () -> scoreboardManager.update(e.getPlayer()), 5L);
+        Player p = e.getPlayer();
+        // Anyone who somehow isn't in the prison world (e.g. logged out mid-transfer) comes home.
+        if (worldBuilder != null && !p.getWorld().equals(worldBuilder.getWorld())) {
+            Location home = rankManager.hasReceivedKit(p) ? worldBuilder.getHubSpawn() : worldBuilder.getStarterSpawn();
+            if (home != null) p.teleport(home);
+        }
+        Bukkit.getScheduler().runTaskLater(this, () -> scoreboardManager.update(p), 5L);
+    }
+
+    /** Respawns go to the hub, or the bus for players who never finished intake. */
+    @EventHandler
+    public void onRespawn(org.bukkit.event.player.PlayerRespawnEvent e) {
+        Player p = e.getPlayer();
+        Location home = rankManager.hasReceivedKit(p) ? worldBuilder.getHubSpawn() : worldBuilder.getStarterSpawn();
+        if (home != null) e.setRespawnLocation(home);
     }
 
     /**

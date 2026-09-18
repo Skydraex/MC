@@ -127,7 +127,7 @@ public class MenuGUI implements Listener {
         int[] b = mineBounds.get(rank);
         if (b == null) return;
         // Drop them just inside the entrance, on the floor.
-        Location loc = new Location(p.getWorld(), b[0] + 2.5, b[1] + 1, b[2] + 3.5);
+        Location loc = new Location(plugin.builder().getWorld(), b[0] + 2.5, b[1] + 1, b[2] + 3.5);
         p.teleport(loc);
         p.sendMessage("§aWarped to Mine " + rank + ".");
         p.closeInventory();

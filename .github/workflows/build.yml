@@ -16,6 +16,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Discover available paper-api versions
+        run: |
+          curl -s "https://repo.papermc.io/repository/maven-public/io/papermc/paper/paper-api/maven-metadata.xml" -o /tmp/paper-versions.xml || true
+          echo "--- paper-api maven-metadata.xml ---" > AVAILABLE_VERSIONS.txt
+          cat /tmp/paper-versions.xml >> AVAILABLE_VERSIONS.txt 2>/dev/null || echo "fetch failed" >> AVAILABLE_VERSIONS.txt
+          git config user.email "ci@local"
+          git config user.name "CI Bot"
+          git add AVAILABLE_VERSIONS.txt
+          git commit -m "Record available paper-api versions [skip ci]" || true
+          git push || true
       - name: Build with Maven
         id: build
         continue-on-error: true

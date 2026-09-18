@@ -84,6 +84,8 @@ public class WorldBuilder {
             sellSigns.put(signLoc, new SellSignListener.SellSignData(d.rank, prices));
         }
         registerPondBounds();
+        registerCrateLocations();
+        buildPvpArenas(false); // register zone bounds only; no block placement
         hubSpawn = new Location(world, HUB_X1 + 5.5, GROUND_Y + 1, 0.5);
         starterSpawn = new Location(world, STARTER_X1 + 6.5, GROUND_Y + 1, 0.5);
         world.setSpawnLocation(HUB_X1 + 5, GROUND_Y + 1, 0);
@@ -103,6 +105,8 @@ public class WorldBuilder {
         }
         connectMineWalkways();
         buildFishingArea();
+        buildCrateRoom();
+        buildPvpArenas(true);
         setupWorldBorder();
         try {
             plugin.getDataFolder().mkdirs();
@@ -453,6 +457,139 @@ public class WorldBuilder {
         if (tier <= 6) return Material.PRISMARINE;
         if (tier <= 8) return Material.DARK_PRISMARINE;
         return Material.SCULK;
+    }
+
+    // ---- Crates -----------------------------------------------------------
+
+    /** Records where each crate block sits so the listener can hook them up. */
+    private final Map<Location, String> crateLocations = new LinkedHashMap<>();
+
+    public Map<Location, String> getCrateLocations() { return crateLocations; }
+
+    /** A small crate hall off the hub, with one podium per crate type. */
+    /** Computes crate podium coordinates. Registration-only when placeBlocks is false. */
+    private void registerCrateLocations() {
+        crateLocations.clear();
+        int rx1 = HUB_X1 + 2, rx2 = HUB_X1 + 22;
+        int rz1 = HUB_Z1 - 22, rz2 = HUB_Z1 - 2;
+        int i = 0;
+        int spacing = (rx2 - rx1) / (CrateData.CRATES.size() + 1);
+        for (CrateData.Crate crate : CrateData.CRATES.values()) {
+            i++;
+            int cx = rx1 + spacing * i;
+            int cz = (rz1 + rz2) / 2;
+            crateLocations.put(new Location(world, cx, GROUND_Y + 2, cz), crate.id);
+        }
+    }
+
+    private void buildCrateRoom() {
+        int rx1 = HUB_X1 + 2, rx2 = HUB_X1 + 22;
+        int rz1 = HUB_Z1 - 22, rz2 = HUB_Z1 - 2;
+        int y = GROUND_Y;
+
+        floor(rx1, rz1, rx2, rz2, y, Material.POLISHED_DIORITE);
+        hollow(rx1, rz1, rx2, rz2, y + 1, y + 6);
+        perimeter(rx1, rz1, rx2, rz2, y + 1, y + 6, Material.DEEPSLATE_BRICKS);
+        ceiling(rx1, rz1, rx2, rz2, y + 7, Material.DEEPSLATE_BRICKS);
+        lightGrid(rx1, rz1, rx2, rz2, y + 6, 5, Material.SEA_LANTERN);
+
+        // Doorway back into the hub.
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = 1; dy <= 3; dy++) {
+                world.getBlockAt(rx1 + 10 + dx, y + dy, rz2).setType(Material.AIR);
+            }
+        }
+
+        // One podium per crate, evenly spaced along the room.
+        int i = 0;
+        int spacing = (rx2 - rx1) / (CrateData.CRATES.size() + 1);
+        for (CrateData.Crate crate : CrateData.CRATES.values()) {
+            i++;
+            int cx = rx1 + spacing * i;
+            int cz = (rz1 + rz2) / 2;
+            // Podium block with the crate chest on top.
+            world.getBlockAt(cx, y + 1, cz).setType(Material.CHISELED_DEEPSLATE);
+            Block crateBlock = world.getBlockAt(cx, y + 2, cz);
+            crateBlock.setType(Material.ENDER_CHEST);
+            crateLocations.put(crateBlock.getLocation(), crate.id);
+            // Accent lighting around each podium.
+            world.getBlockAt(cx - 1, y + 1, cz).setType(Material.POLISHED_DEEPSLATE_SLAB);
+            world.getBlockAt(cx + 1, y + 1, cz).setType(Material.POLISHED_DEEPSLATE_SLAB);
+            sign(cx, y + 2, cz - 1, "\u00a76\u00a7l" + crate.display, "Right-click", "with a key", "to open");
+        }
+
+        sign(rx1 + 10, y + 2, rz1 + 1, "\u00a76\u00a7lCRATES", "Keys drop from", "mining and", "fishing.");
+    }
+
+    // ---- PvP arenas -------------------------------------------------------
+
+    private final List<PvpZoneManager.Zone> pvpZones = new ArrayList<>();
+
+    public List<PvpZoneManager.Zone> getPvpZones() { return pvpZones; }
+
+    /**
+     * PvP arenas placed through the prison. Floors are lined with red wool, the long-standing
+     * prison-server signal for "you can be killed and looted here".
+     */
+    private void buildPvpArenas(boolean placeBlocks) {
+        pvpZones.clear();
+        // A main arena just off the hub.
+        addArena("The Yard", HUB_X1 + 4, GROUND_Y, HUB_Z2 + 6, HUB_X1 + 30, GROUND_Y + 10,
+                HUB_Z2 + 30, true, placeBlocks);
+
+        // Smaller contested arenas out among the wards, so higher ranks have their own.
+        String[] wardRanks = {"F", "M", "T"};
+        for (String rank : wardRanks) {
+            RankMineData.Def d = RankMineData.RANKS.get(rank);
+            if (d == null) continue;
+            int ax1 = d.x1 - 14;
+            int az1 = d.z1 + ENTRANCE_Z + 8;
+            addArena(rank + "-Ward Pit", ax1, d.y1, az1, ax1 + 18, d.y1 + 8, az1 + 18,
+                    false, placeBlocks);
+        }
+    }
+
+    private void addArena(String name, int x1, int y, int z1, int x2, int yTop, int z2,
+                          boolean grand, boolean placeBlocks) {
+        pvpZones.add(new PvpZoneManager.Zone(name, x1, y, z1, x2, yTop, z2));
+        if (!placeBlocks) return;
+        // Red wool floor — the visual marker players recognise instantly.
+        floor(x1, z1, x2, z2, y, Material.RED_WOOL);
+        // Border ring in darker red so the boundary is unmistakable.
+        perimeter(x1, z1, x2, z2, y, y, Material.RED_CONCRETE);
+        // Low walls so fights stay inside, open-topped for visibility.
+        perimeter(x1, z1, x2, z2, y + 1, y + 3, Material.RED_CONCRETE);
+        hollow(x1 + 1, z1 + 1, x2 - 1, z2 - 1, y + 1, yTop);
+
+        // Corner pillars and lighting for a built-on-purpose look.
+        for (int[] corner : new int[][]{{x1, z1}, {x1, z2}, {x2, z1}, {x2, z2}}) {
+            for (int dy = 1; dy <= 5; dy++) {
+                world.getBlockAt(corner[0], y + dy, corner[1]).setType(Material.DEEPSLATE_BRICKS);
+            }
+            world.getBlockAt(corner[0], y + 6, corner[1]).setType(Material.REDSTONE_LAMP);
+        }
+
+        if (grand) {
+            // Cover in the middle of the main arena so fights aren't pure open ground.
+            int mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    if (Math.abs(dx) == 2 || Math.abs(dz) == 2) {
+                        world.getBlockAt(mx + dx, y + 1, mz + dz).setType(Material.DEEPSLATE_BRICK_WALL);
+                    }
+                }
+            }
+        }
+
+        // Entrances on two sides.
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dy = 1; dy <= 3; dy++) {
+                world.getBlockAt(x1, y + dy, (z1 + z2) / 2 + dz).setType(Material.AIR);
+                world.getBlockAt(x2, y + dy, (z1 + z2) / 2 + dz).setType(Material.AIR);
+            }
+        }
+
+        sign(x1 + 2, y + 2, z1 + 1, "\u00a7c\u00a7lPVP ZONE", name, "Drop all items", "on death!");
     }
 
     // ---- Shared helpers ---------------------------------------------------

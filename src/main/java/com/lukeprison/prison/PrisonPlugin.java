@@ -21,6 +21,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     private ScoreboardManager scoreboardManager;
     private RanksGUI ranksGUI;
     private FishingManager fishingManager;
+    private CrateListener crateListener;
+    private PvpZoneManager pvpManager;
 
     public static PrisonPlugin get() { return instance; }
     public Economy economy() { return economy; }
@@ -28,6 +30,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     public ScoreboardManager scoreboard() { return scoreboardManager; }
     public FishingManager fishing() { return fishingManager; }
     public WorldBuilder builder() { return worldBuilder; }
+    public CrateListener crates() { return crateListener; }
+    public PvpZoneManager pvp() { return pvpManager; }
 
     @Override
     public void onEnable() {
@@ -69,6 +73,11 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         FishingCommands fishingCommands = new FishingCommands(this);
         QuestNpcManager npcManager = new QuestNpcManager(this, worldBuilder);
 
+        crateListener = new CrateListener(this);
+        worldBuilder.getCrateLocations().forEach(crateListener::registerCrate);
+        pvpManager = new PvpZoneManager(this);
+        worldBuilder.getPvpZones().forEach(pvpManager::addZone);
+
         getServer().getPluginManager().registerEvents(ranksGUI, this);
         getServer().getPluginManager().registerEvents(enchantGUI, this);
         getServer().getPluginManager().registerEvents(menuGUI, this);
@@ -76,6 +85,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(fishingCommands, this);
         getServer().getPluginManager().registerEvents(new FishingListener(this), this);
         getServer().getPluginManager().registerEvents(npcManager, this);
+        getServer().getPluginManager().registerEvents(crateListener, this);
+        getServer().getPluginManager().registerEvents(pvpManager, this);
         getServer().getPluginManager().registerEvents(this, this);
 
         // Spawn quest NPCs a tick later so the world is fully ready.

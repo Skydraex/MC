@@ -75,6 +75,9 @@ public class FishingListener implements Listener {
             caughtItem.setItemStack(buildFish(fish));
         }
 
+        // Rare chance of a crate key from fishing.
+        if (plugin.crates() != null) plugin.crates().rollFishingKey(p);
+
         // XP and level-up notification.
         int before = level;
         plugin.fishing().addXp(p, pond.xpPerCatch);

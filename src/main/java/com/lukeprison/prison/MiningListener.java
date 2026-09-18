@@ -103,6 +103,9 @@ public class MiningListener implements Listener {
         }
         if (tokensEarned > 0) plugin.ranks().addTokens(p, tokensEarned);
 
+        // Rare chance of a crate key from mining.
+        if (plugin.crates() != null) plugin.crates().rollMiningKey(p, blocksBroken);
+
         // Payout: auto-sell straight to cash, or drop items into the inventory.
         if (plugin.ranks().isAutoSell(p)) {
             double total = 0;

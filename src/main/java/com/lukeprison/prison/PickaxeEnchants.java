@@ -21,41 +21,48 @@ public class PickaxeEnchants {
         public final int maxLevel;
         public final long baseCost;
         public final Material icon;
+        /** Minimum prison rank before this enchant can be bought at all. */
+        public final String requiredRank;
 
-        public EnchantDef(String id, String display, String description, int maxLevel, long baseCost, Material icon) {
+        public EnchantDef(String id, String display, String description, int maxLevel,
+                          long baseCost, Material icon, String requiredRank) {
             this.id = id;
             this.display = display;
             this.description = description;
             this.maxLevel = maxLevel;
             this.baseCost = baseCost;
             this.icon = icon;
+            this.requiredRank = requiredRank;
         }
 
-        /** Cost scales with the level you're buying into. */
+        /** Cost climbs steeply per level so max levels are a long-term goal, not a quick buy. */
         public long costFor(int nextLevel) {
-            return baseCost * nextLevel;
+            return Math.round(baseCost * Math.pow(nextLevel, 1.8));
         }
     }
 
     public static final Map<String, EnchantDef> ENCHANTS = new LinkedHashMap<>();
 
     static {
+        // Deliberately conservative. Nothing here should trivialise early play: the strong
+        // enchants are gated behind a minimum rank so they arrive as a reward for progress,
+        // not as a shortcut past it.
         ENCHANTS.put("efficiency", new EnchantDef("efficiency", "Efficiency",
-                "Mine blocks faster", 10, 50, Material.GOLDEN_PICKAXE));
+                "Mine blocks faster", 5, 80, Material.GOLDEN_PICKAXE, "A"));
         ENCHANTS.put("fortune", new EnchantDef("fortune", "Fortune",
-                "Chance for bonus drops per block", 10, 100, Material.DIAMOND));
+                "Small chance of bonus drops", 4, 220, Material.DIAMOND, "C"));
         ENCHANTS.put("haste", new EnchantDef("haste", "Haste",
-                "Permanent Haste effect while holding", 5, 150, Material.BEACON));
-        ENCHANTS.put("explosive", new EnchantDef("explosive", "Explosive",
-                "Chance to blast a 3x3x3 area", 8, 250, Material.TNT));
-        ENCHANTS.put("jackhammer", new EnchantDef("jackhammer", "Jackhammer",
-                "Chance to clear an entire layer", 5, 1000, Material.NETHERITE_PICKAXE));
+                "Mining speed boost while held", 3, 400, Material.BEACON, "F"));
         ENCHANTS.put("autosmelt", new EnchantDef("autosmelt", "Auto-Smelt",
-                "Ores smelt into ingots automatically", 1, 500, Material.FURNACE));
+                "Ores smelt into ingots automatically", 1, 900, Material.FURNACE, "H"));
         ENCHANTS.put("tokenator", new EnchantDef("tokenator", "Tokenator",
-                "Chance for bonus tokens per block", 10, 200, Material.SUNFLOWER));
+                "Small chance of bonus tokens", 5, 600, Material.SUNFLOWER, "J"));
+        ENCHANTS.put("explosive", new EnchantDef("explosive", "Explosive",
+                "Chance to blast a small area", 5, 1800, Material.TNT, "M"));
+        ENCHANTS.put("jackhammer", new EnchantDef("jackhammer", "Jackhammer",
+                "Rare chance to clear a patch", 3, 5000, Material.NETHERITE_PICKAXE, "R"));
         ENCHANTS.put("fly", new EnchantDef("fly", "Flight",
-                "Fly while inside a mine", 1, 2000, Material.FEATHER));
+                "Fly inside mines only", 1, 12000, Material.FEATHER, "V"));
     }
 
     private static NamespacedKey key(String enchantId) {

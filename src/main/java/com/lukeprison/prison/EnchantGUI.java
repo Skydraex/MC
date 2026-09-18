@@ -35,7 +35,8 @@ public class EnchantGUI implements Listener {
         int slot = 0;
         for (PickaxeEnchants.EnchantDef def : PickaxeEnchants.ENCHANTS.values()) {
             int lvl = PickaxeEnchants.getLevel(hand, def.id);
-            inv.setItem(slot++, buildItem(def, lvl, plugin.ranks().getTokens(p)));
+            inv.setItem(slot++, buildItem(def, lvl, plugin.ranks().getTokens(p),
+                    plugin.ranks().canAccessMine(p, def.requiredRank)));
         }
 
         // Token balance display at the bottom.
@@ -52,14 +53,22 @@ public class EnchantGUI implements Listener {
         p.openInventory(inv);
     }
 
-    private ItemStack buildItem(PickaxeEnchants.EnchantDef def, int currentLevel, long tokens) {
-        ItemStack item = new ItemStack(def.icon);
+    private ItemStack buildItem(PickaxeEnchants.EnchantDef def, int currentLevel, long tokens,
+                                boolean rankOk) {
+        ItemStack item = new ItemStack(rankOk ? def.icon : Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName("§b§l" + def.display);
 
         List<String> lore = new ArrayList<>();
         lore.add("§7" + def.description);
         lore.add("");
+        if (!rankOk) {
+            lore.add("§cLocked until rank " + def.requiredRank);
+            lore.add("§8Earn it by ranking up.");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+            return item;
+        }
         lore.add("§7Level: §f" + currentLevel + "§7/§f" + def.maxLevel);
         if (currentLevel >= def.maxLevel) {
             lore.add("§aMaxed out!");
@@ -91,6 +100,11 @@ public class EnchantGUI implements Listener {
         if (!PickaxeEnchants.isPickaxe(hand)) {
             p.sendMessage("§cYou need to be holding your pickaxe.");
             p.closeInventory();
+            return;
+        }
+
+        if (!plugin.ranks().canAccessMine(p, target.requiredRank)) {
+            p.sendMessage("§cThat enchant unlocks at rank " + target.requiredRank + ".");
             return;
         }
 

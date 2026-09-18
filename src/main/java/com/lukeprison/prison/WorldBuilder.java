@@ -272,7 +272,7 @@ public class WorldBuilder {
         for (int dy = 2; dy <= 9; dy++) arch.set(cx, Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
         arch.set(cx, Y + 10, cz, Material.SEA_LANTERN);
         // Hanging chains from the ceiling down to the column top, as in the reference hall.
-        for (int dy = 11; dy <= HUB_HEIGHT; dy++) arch.set(cx, Y + dy, cz, Material.CHAIN);
+        for (int dy = 11; dy <= HUB_HEIGHT; dy++) arch.set(cx, Y + dy, cz, Material.IRON_BARS);
 
         // Red-wool PvP lane from the Yard door straight up to the dais. Inside red = PvP on.
         int yardMid = (YARD[0] + YARD[2]) / 2;

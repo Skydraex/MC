@@ -1,7 +1,7 @@
 name: PrisonPlugin
 version: 1.0.0
 main: com.lukeprison.prison.PrisonPlugin
-api-version: '1.21'
+api-version: '26.2'
 depend: [Vault]
 commands:
   rankup:

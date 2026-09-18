@@ -1,0 +1,15 @@
+name: PrisonPlugin
+version: 1.0.0
+main: com.lukeprison.prison.PrisonPlugin
+api-version: '1.21'
+depend: [Vault]
+commands:
+  rankup:
+    description: Rank up to the next rank if you can afford it
+  rank:
+    description: Show your current rank and progress
+  prestige:
+    description: Prestige once you reach Free
+permissions:
+  prison.admin:
+    default: op

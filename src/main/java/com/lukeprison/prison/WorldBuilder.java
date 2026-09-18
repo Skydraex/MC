@@ -35,6 +35,7 @@ public class WorldBuilder {
     private final List<PendingSign> signs = new ArrayList<>();
     private Location hubSpawn;
     private Location starterSpawn;
+    private final Map<Integer, CellManager.CellRect> cellRects = new LinkedHashMap<>();
 
     // ---- Master layout. Every region here is disjoint from every other. ----
     public static final int Y = 95;               // one floor height everywhere
@@ -66,8 +67,16 @@ public class WorldBuilder {
     public List<PvpZoneManager.Zone> getPvpZones() { return pvpZones; }
     public Location getHubSpawn() { return hubSpawn; }
     public Location getStarterSpawn() { return starterSpawn; }
+    public Map<Integer, CellManager.CellRect> getCellRects() { return cellRects; }
 
-    private File markerFile() { return new File(plugin.getDataFolder(), "world-built.marker"); }
+    /**
+     * The marker lives inside the world's own folder, not the plugin's data folder — tying it
+     * to that specific world's lifecycle. This is what went wrong last time: a marker from a
+     * previous world persisted after switching to a fresh one, so the new world was skipped
+     * entirely and stayed empty. Deleting the world folder now always invalidates the marker
+     * along with it, and a genuinely new world always rebuilds.
+     */
+    private File markerFile() { return new File(world.getWorldFolder(), "prison-built.marker"); }
     public boolean alreadyBuilt() { return markerFile().exists(); }
 
     /** Registers all bounds in memory. Runs every boot; places nothing. */
@@ -115,7 +124,7 @@ public class WorldBuilder {
 
         setupWorldBorder();
         try {
-            plugin.getDataFolder().mkdirs();
+            markerFile().getParentFile().mkdirs();
             markerFile().createNewFile();
         } catch (Exception e) {
             plugin.getLogger().warning("Could not write world-built marker.");
@@ -194,7 +203,7 @@ public class WorldBuilder {
         }
         // Server name across the yard's east wall, above the exit, read facing east.
         int nameW = BlockFont.width("SKY PRISON");
-        BlockFont.write(world, "SKY PRISON", r[2] - 1, Y + 16, -nameW / 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, "SKY PRISON", r[2] - 1, Y + 16, -nameW / 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
         // Backing panel so the letters read against the sky.
         for (int z = -nameW / 2 - 1; z <= nameW / 2 + 1; z++) {
             for (int dy = 9; dy <= 17; dy++) arch.set(r[2], Y + dy, z, arch.pick(Architect.PRISON_STONE));
@@ -285,7 +294,7 @@ public class WorldBuilder {
 
         // Server name inside, above the east gate, read facing west from the ward walkway.
         int nameW = BlockFont.width("SKY PRISON");
-        BlockFont.write(world, "SKY PRISON", r[2], Y + HUB_HEIGHT - 2, nameW / 2, BlockFont.Axis.NEG_Z, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, "SKY PRISON", r[2], Y + HUB_HEIGHT - 2, nameW / 2, BlockFont.Axis.NEG_Z, Material.LIGHT_BLUE_CONCRETE);
 
         // Ender chests flanking the grand gate, as prison hubs do.
         arch.set(r[2] - 2, Y + 1, ENTRANCE_Z - 5, Material.ENDER_CHEST);
@@ -300,6 +309,26 @@ public class WorldBuilder {
     // ---- Cell block: two tiers of 7x7 cells on railed gantries ----
 
     private static final int CELL_TIER_HEIGHT = 6;
+
+    /** Computes every cell's rectangle. Cheap math only; runs every boot so /cell always works. */
+    private void registerCellRects() {
+        cellRects.clear();
+        int[] r = CELLS;
+        int startX = r[0] + 3;
+        int rowPitch = CELL_SIZE + 4;
+        int cellNumber = 1;
+        for (int tier = 0; tier < CELL_TIERS; tier++) {
+            int y = Y + tier * CELL_TIER_HEIGHT;
+            for (int row = 0; row < CELL_ROWS; row++) {
+                int cz = r[1] + 6 + row * rowPitch;
+                for (int col = 0; col < CELLS_PER_ROW; col++) {
+                    int x = startX + col * CELL_SIZE;
+                    cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, x, cz, x + CELL_SIZE - 1, cz + CELL_SIZE - 1, y));
+                    cellNumber++;
+                }
+            }
+        }
+    }
 
     private void buildCellBlock() {
         int[] r = CELLS;
@@ -334,7 +363,7 @@ public class WorldBuilder {
                 arch.set(r[2] - 4, base + i, r[1] + 3 + i, Material.IRON_BARS);
             }
         }
-        BlockFont.write(world, "CELLS", (r[0] + r[2]) / 2 - BlockFont.width("CELLS") / 2, Y + hallHeight - 1, r[3] - 1, BlockFont.Axis.POS_X, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, "CELLS", (r[0] + r[2]) / 2 - BlockFont.width("CELLS") / 2, Y + hallHeight - 1, r[3] - 1, BlockFont.Axis.POS_X, Material.LIGHT_BLUE_CONCRETE);
         sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§8§lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW * CELL_TIERS) + " cells", CELL_TIERS + " tiers", "");
     }
 
@@ -378,7 +407,7 @@ public class WorldBuilder {
     private void buildCrateHall() {
         int[] r = CRATES;
         arch.prisonHall(r[0], r[1], r[2], r[3], Y, 9, Material.POLISHED_DIORITE, Material.POLISHED_BLACKSTONE, 8);
-        BlockFont.write(world, "CRATES", (r[0] + r[2]) / 2 + BlockFont.width("CRATES") / 2, Y + 9, r[1] + 1, BlockFont.Axis.NEG_X, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, "CRATES", (r[0] + r[2]) / 2 + BlockFont.width("CRATES") / 2, Y + 9, r[1] + 1, BlockFont.Axis.NEG_X, Material.LIGHT_BLUE_CONCRETE);
         for (Map.Entry<Location, String> e : crateLocations.entrySet()) {
             Location l = e.getKey();
             CrateData.Crate crate = CrateData.CRATES.get(e.getValue());
@@ -481,12 +510,12 @@ public class WorldBuilder {
         for (int dz = -4; dz <= 4; dz++) {
             for (int dy = 1; dy <= 6; dy++) {
                 boolean frame = Math.abs(dz) == 4 || dy == 6;
-                arch.set(gx, Y + dy, ENTRANCE_Z + dz, frame ? Material.CHISELED_STONE_BRICKS : Material.IRON_BARS);
+                arch.set(gx, Y + dy, ENTRANCE_Z + dz, frame ? Material.SMOOTH_QUARTZ : Material.IRON_BARS);
             }
         }
         for (int dz = -5; dz <= 5; dz++) arch.set(gx, Y + 7, ENTRANCE_Z + dz, (dz % 3 == 0) ? Material.IRON_BARS : Material.COBWEB);
-        BlockFont.write(world, d.rank, gx, Y + 15, ENTRANCE_Z - 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
-        BlockFont.write(world, "MINE", gx, Y + 26, ENTRANCE_Z - BlockFont.width("MINE") / 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, d.rank, gx, Y + 15, ENTRANCE_Z - 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
+        BlockFont.write(world, "MINE", gx, Y + 26, ENTRANCE_Z - BlockFont.width("MINE") / 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
 
         sign(w[0] + 1, Y + 2, w[1] + 4, BlockFace.EAST, "§6§l" + d.rank + "-WARD", "Mine " + d.rank,
                 "Rare: " + prettyName(d.rare), String.format("%.0f%% rare", rarePercentFor(d.rank)));
@@ -585,7 +614,7 @@ public class WorldBuilder {
     // ---- Doorways: carved last so nothing can brick them over ----
 
     private void carveAllDoorways() {
-        Material f = Material.CHISELED_STONE_BRICKS;
+        Material f = Material.SMOOTH_QUARTZ;
         arch.doorway(STARTER[2], Y + 1, 0, true, 1, 4, f);                 // yard → corridor
         arch.doorway(CORRIDOR[0], Y + 1, 0, true, 1, 4, f);                 // corridor west (same wall)
         arch.doorway(CORRIDOR[2], Y + 1, 0, true, 1, 4, f);                 // corridor → hub

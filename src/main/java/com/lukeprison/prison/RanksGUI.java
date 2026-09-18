@@ -110,6 +110,7 @@ public class RanksGUI implements Listener {
         boolean ok = plugin.ranks().rankUp(p);
         if (ok) {
             p.sendMessage("§aRanked up to §f" + clickedRank + "§a!");
+            plugin.chat().updateTab(p);
             p.closeInventory();
         } else {
             p.sendMessage("§cYou can't afford that rank yet.");

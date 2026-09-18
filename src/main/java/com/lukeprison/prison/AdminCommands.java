@@ -48,6 +48,7 @@ public class AdminCommands implements CommandExecutor {
                 }
                 plugin.ranks().setRank(t, rank);
                 plugin.scoreboard().update(t);
+                plugin.chat().updateTab(t);
                 s.sendMessage("§aSet " + t.getName() + " to rank " + rank + ".");
                 t.sendMessage("§eAn admin set your rank to §f" + rank + "§e.");
             }

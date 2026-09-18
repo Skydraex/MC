@@ -54,9 +54,13 @@ public class Architect {
 
     // ---- Standard palettes, chosen so each zone reads as its own place ----
 
-    /** Weathered institutional stone — the main prison fabric. */
+    /**
+     * Sky Prison's own fabric: cool, weathered deepslate rather than the warm stone-brick grey
+     * most prison servers default to — reads darker and colder, matching a facility floating in
+     * open sky rather than dug into a hillside.
+     */
     public static final Palette PRISON_STONE = Palette.of(
-            Material.STONE_BRICKS, Material.CRACKED_STONE_BRICKS, 18, Material.MOSSY_STONE_BRICKS, 9);
+            Material.DEEPSLATE_BRICKS, Material.CRACKED_DEEPSLATE_BRICKS, 16, Material.DEEPSLATE_TILES, 10);
 
     /**
      * Textured tuff for the hub. Noise only works on blocks that have surface texture —
@@ -266,11 +270,13 @@ public class Architect {
                 for (int dy = 0; dy < height; dy++) {
                     Material mat;
                     if (isPillar) {
-                        mat = dy == 0 || dy == height - 1 ? Material.CHISELED_STONE_BRICKS : Material.STONE_BRICKS;
+                        mat = dy == 0 || dy == height - 1 ? Material.QUARTZ_PILLAR : Material.SMOOTH_QUARTZ;
                     } else if (dy == 0 || dy == height - 1) {
-                        mat = Material.CHISELED_STONE_BRICKS;
+                        mat = Material.SMOOTH_QUARTZ;
                     } else if (dy == 2 || dy == 3) {
-                        mat = random.nextInt(100) < 12 ? Material.RED_NETHER_BRICKS : Material.NETHER_BRICKS;
+                        // Sky Prison's signature band: ice-cyan rather than the usual prison-server
+                        // blood-red. Terracotta keeps the surface texture noise needs to read right.
+                        mat = random.nextInt(100) < 15 ? Material.LIGHT_BLUE_TERRACOTTA : Material.CYAN_TERRACOTTA;
                     } else {
                         mat = pick(PRISON_STONE);
                     }
@@ -307,7 +313,7 @@ public class Architect {
                 for (int dx = -2; dx <= 2; dx++) {
                     for (int dz = -2; dz <= 2; dz++) {
                         boolean frame = Math.abs(dx) == 2 || Math.abs(dz) == 2;
-                        set(cx + dx, ceilingY, cz + dz, frame ? Material.CHISELED_STONE_BRICKS : Material.AIR);
+                        set(cx + dx, ceilingY, cz + dz, frame ? Material.SMOOTH_QUARTZ : Material.AIR);
                         if (!frame) set(cx + dx, ceilingY + 1, cz + dz, Material.SEA_LANTERN);
                     }
                 }

@@ -44,6 +44,7 @@ public class FishingManager {
     }
 
     public long getXp(Player p) { return xp.getOrDefault(p.getUniqueId(), 0L); }
+    public Map<UUID, Long> allXp() { return xp; }
     public int getLevel(Player p) { return FishingData.levelForXp(getXp(p)); }
     public void addXp(Player p, long amount) { xp.merge(p.getUniqueId(), amount, Long::sum); }
 

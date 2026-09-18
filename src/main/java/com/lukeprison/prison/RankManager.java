@@ -19,6 +19,10 @@ public class RankManager {
     private final Map<UUID, Long> tokens = new HashMap<>();
     private final Map<UUID, Long> blocksMined = new HashMap<>();
     private final java.util.Set<UUID> autoSell = new java.util.HashSet<>();
+    private final Map<UUID, Long> lastDaily = new HashMap<>();
+    private final Map<UUID, Integer> dailyStreak = new HashMap<>();
+    private final Map<UUID, java.util.Set<Long>> milestonesHit = new HashMap<>();
+    private final Map<Integer, UUID> cellOwners = new HashMap<>();
     private File file;
     private YamlConfiguration yaml;
 
@@ -39,6 +43,13 @@ public class RankManager {
             tokens.put(id, yaml.getLong(key + ".tokens", 0));
             blocksMined.put(id, yaml.getLong(key + ".blocks", 0));
             if (yaml.getBoolean(key + ".autosell", false)) autoSell.add(id);
+            lastDaily.put(id, yaml.getLong(key + ".daily.last", 0));
+            dailyStreak.put(id, yaml.getInt(key + ".daily.streak", 0));
+            java.util.Set<Long> ms = new java.util.HashSet<>();
+            for (long m : yaml.getLongList(key + ".milestones")) ms.add(m);
+            milestonesHit.put(id, ms);
+            int cell = yaml.getInt(key + ".cell", -1);
+            if (cell > 0) cellOwners.put(cell, id);
         }
     }
 
@@ -51,6 +62,12 @@ public class RankManager {
             yaml.set(e.getKey() + ".tokens", tokens.getOrDefault(e.getKey(), 0L));
             yaml.set(e.getKey() + ".blocks", blocksMined.getOrDefault(e.getKey(), 0L));
             yaml.set(e.getKey() + ".autosell", autoSell.contains(e.getKey()));
+            yaml.set(e.getKey() + ".daily.last", lastDaily.getOrDefault(e.getKey(), 0L));
+            yaml.set(e.getKey() + ".daily.streak", dailyStreak.getOrDefault(e.getKey(), 0));
+            yaml.set(e.getKey() + ".milestones", new java.util.ArrayList<>(milestonesHit.getOrDefault(e.getKey(), java.util.Set.of())));
+            int owned = -1;
+            for (Map.Entry<Integer, UUID> c : cellOwners.entrySet()) if (c.getValue().equals(e.getKey())) owned = c.getKey();
+            yaml.set(e.getKey() + ".cell", owned);
         }
         try { yaml.save(file); } catch (IOException e) { e.printStackTrace(); }
     }
@@ -74,6 +91,38 @@ public class RankManager {
         return true;
     }
 
+    // ---- Prestige perks ----
+    /** Sell-price multiplier: +3% per prestige, capped at +150%. Modest, but permanent. */
+    public double getSellMultiplier(Player p) {
+        return 1.0 + Math.min(1.5, getPrestige(p) * 0.03);
+    }
+
+    // ---- Daily rewards ----
+    public long getLastDaily(Player p) { return lastDaily.getOrDefault(p.getUniqueId(), 0L); }
+    public int getDailyStreak(Player p) { return dailyStreak.getOrDefault(p.getUniqueId(), 0); }
+    public void recordDaily(Player p, int streak) {
+        lastDaily.put(p.getUniqueId(), System.currentTimeMillis());
+        dailyStreak.put(p.getUniqueId(), streak);
+    }
+
+    // ---- Milestones ----
+    public boolean claimMilestone(Player p, long threshold) {
+        return milestonesHit.computeIfAbsent(p.getUniqueId(), k -> new java.util.HashSet<>()).add(threshold);
+    }
+
+    // ---- Cells ----
+    public UUID cellOwner(int cell) { return cellOwners.get(cell); }
+    public Integer cellOf(Player p) {
+        for (Map.Entry<Integer, UUID> c : cellOwners.entrySet()) if (c.getValue().equals(p.getUniqueId())) return c.getKey();
+        return null;
+    }
+    public void claimCell(Player p, int cell) { cellOwners.put(cell, p.getUniqueId()); }
+    public void unclaimCell(int cell) { cellOwners.remove(cell); }
+    public Map<Integer, UUID> allCellOwners() { return cellOwners; }
+    public java.util.Set<UUID> knownPlayers() { return ranks.keySet(); }
+    public Map<UUID, Long> allBlocksMined() { return blocksMined; }
+    public Map<UUID, Integer> allPrestige() { return prestige; }
+
     /** Wipes a player back to a brand-new state so the intro can be replayed. */
     public void resetPlayer(Player p) {
         UUID id = p.getUniqueId();
@@ -83,6 +132,11 @@ public class RankManager {
         blocksMined.put(id, 0L);
         autoSell.remove(id);
         kitGiven.remove(id);
+        lastDaily.remove(id);
+        dailyStreak.remove(id);
+        milestonesHit.remove(id);
+        Integer cell = cellOf(p);
+        if (cell != null) cellOwners.remove(cell);
         p.recalculatePermissions();
     }
 

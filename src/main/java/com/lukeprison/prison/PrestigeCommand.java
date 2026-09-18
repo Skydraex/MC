@@ -24,6 +24,7 @@ public class PrestigeCommand implements CommandExecutor {
         if (ok) {
             int level = plugin.ranks().getPrestige(p);
             p.sendMessage("§dPrestiged! You are now Prestige " + level + ". Back to rank A with a permanent bonus.");
+            plugin.chat().updateTab(p);
         } else {
             double cost = RankMineData.RANKS.get("FREE").cost;
             p.sendMessage("§cYou need $" + String.format("%.2f", cost) + " to prestige.");

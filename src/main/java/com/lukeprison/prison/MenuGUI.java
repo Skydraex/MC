@@ -55,6 +55,21 @@ public class MenuGUI implements Listener {
         inv.setItem(16, item(Material.NETHER_STAR, "§5§lPrestige",
                 "§7Reset to rank A for a permanent bonus.",
                 "§7Requires rank Free."));
+        inv.setItem(19, item(Material.EMERALD, "§a§lShop",
+                "§7Buy gear, food and pickaxes.",
+                "§7Rank-gated, so no shortcuts."));
+        inv.setItem(20, item(Material.CLOCK, "§e§lDaily Reward",
+                "§7Claim your streak bonus.",
+                "§7/daily"));
+        inv.setItem(21, item(Material.GOLD_INGOT, "§6§lCoinflips",
+                "§7Wager money against other players.",
+                "§7/coinflip"));
+        inv.setItem(22, item(Material.PLAYER_HEAD, "§b§lLeaderboards",
+                "§7Top money, blocks, prestige, fishing.",
+                "§7/top"));
+        inv.setItem(23, item(Material.IRON_DOOR, "§7§lYour Cell",
+                "§7Claim or visit your cell.",
+                "§7/cell"));
 
         p.openInventory(inv);
     }
@@ -103,6 +118,11 @@ public class MenuGUI implements Listener {
                 case "§6§lRanks" -> { p.closeInventory(); ranksGUI.open(p); }
                 case "§b§lEnchants" -> { p.closeInventory(); enchantGUI.open(p); }
                 case "§a§lMine Warps" -> openWarps(p);
+                case "§a§lShop" -> { p.closeInventory(); p.performCommand("shop"); }
+                case "§e§lDaily Reward" -> { p.closeInventory(); p.performCommand("daily"); }
+                case "§6§lCoinflips" -> { p.closeInventory(); p.performCommand("coinflip"); }
+                case "§b§lLeaderboards" -> { p.closeInventory(); p.performCommand("top"); }
+                case "§7§lYour Cell" -> { p.closeInventory(); p.performCommand("cell home"); }
                 case "§d§lAuto-Sell" -> {
                     boolean on = plugin.ranks().toggleAutoSell(p);
                     p.sendMessage(on ? "§aAuto-sell enabled." : "§cAuto-sell disabled.");

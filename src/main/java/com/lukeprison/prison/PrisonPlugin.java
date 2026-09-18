@@ -24,6 +24,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     private FishingManager fishingManager;
     private CrateListener crateListener;
     private CoinflipManager coinflipManager;
+    private ChatFormatListener chatFormat;
+    private ProgressionFeatures progression;
+    private CellManager cellManager;
     private PvpZoneManager pvpManager;
 
     public static PrisonPlugin get() { return instance; }
@@ -34,6 +37,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     public WorldBuilder builder() { return worldBuilder; }
     public CrateListener crates() { return crateListener; }
     public CoinflipManager coinflips() { return coinflipManager; }
+    public ChatFormatListener chat() { return chatFormat; }
     public PvpZoneManager pvp() { return pvpManager; }
 
     @Override
@@ -98,6 +102,10 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         pvpManager = new PvpZoneManager(this);
         worldBuilder.getPvpZones().forEach(pvpManager::addZone);
         coinflipManager = new CoinflipManager(this);
+        chatFormat = new ChatFormatListener(this);
+        progression = new ProgressionFeatures(this);
+        cellManager = new CellManager(this, worldBuilder.getCellRects());
+        ShopGUI shopGui = new ShopGUI(this);
 
         getServer().getPluginManager().registerEvents(ranksGUI, this);
         getServer().getPluginManager().registerEvents(enchantGUI, this);
@@ -112,6 +120,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new ShopSignListener(this), this);
         getServer().getPluginManager().registerEvents(
                 new ProtectionListener(this, worldBuilder.getMineBounds()), this);
+        getServer().getPluginManager().registerEvents(chatFormat, this);
+        getServer().getPluginManager().registerEvents(cellManager, this);
+        getServer().getPluginManager().registerEvents(shopGui, this);
         getServer().getPluginManager().registerEvents(this, this);
 
         // A moment after the world is ready: sync sign text to clients, then spawn NPCs.
@@ -133,6 +144,11 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getCommand("spawn").setExecutor(new FishingCommands.Spawn(this));
         getCommand("coinflip").setExecutor(new CoinflipManager.Cmd(coinflipManager));
         getCommand("prisonadmin").setExecutor(new AdminCommands(this));
+        getCommand("daily").setExecutor(progression.new Daily());
+        getCommand("top").setExecutor(progression.new Top());
+        getCommand("sell").setExecutor(progression.new Sell());
+        getCommand("cell").setExecutor(cellManager.new Cmd());
+        getCommand("shop").setExecutor(new ShopGUI.Cmd(shopGui));
 
         resetTask = new MineResetTask(this, worldBuilder);
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
@@ -148,6 +164,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 scoreboardManager.update(p);
                 miningListener.applyHaste(p);
+                progression.checkMilestones(p);
                 p.sendActionBar(bar);
             }
         }, 20L, 20L * 3); // refresh every 3 seconds

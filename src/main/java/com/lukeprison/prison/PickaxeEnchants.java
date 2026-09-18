@@ -59,10 +59,8 @@ public class PickaxeEnchants {
                 "Small chance of bonus tokens", 5, 600, Material.SUNFLOWER, "J"));
         ENCHANTS.put("explosive", new EnchantDef("explosive", "Explosive",
                 "Chance to blast a small area", 5, 1800, Material.TNT, "M"));
-        ENCHANTS.put("jackhammer", new EnchantDef("jackhammer", "Jackhammer",
-                "Rare chance to clear a patch", 3, 5000, Material.NETHERITE_PICKAXE, "R"));
-        ENCHANTS.put("fly", new EnchantDef("fly", "Flight",
-                "Fly inside mines only", 1, 12000, Material.FEATHER, "V"));
+        ENCHANTS.put("efficiency2", new EnchantDef("efficiency2", "Deep Efficiency",
+                "Further mining speed, late game only", 3, 4000, Material.NETHERITE_PICKAXE, "R"));
     }
 
     private static NamespacedKey key(String enchantId) {
@@ -117,6 +115,7 @@ public class PickaxeEnchants {
     /** Applies the Haste effect level if the held pickaxe has that enchant. */
     public static int hasteLevel(Player p) {
         ItemStack hand = p.getInventory().getItemInMainHand();
-        return getLevel(hand, "haste");
+        // Deep Efficiency contributes a further Haste tier on top of the base enchant.
+        return getLevel(hand, "haste") + getLevel(hand, "efficiency2");
     }
 }

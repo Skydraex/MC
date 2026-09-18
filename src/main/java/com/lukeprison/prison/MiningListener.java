@@ -68,17 +68,6 @@ public class MiningListener implements Listener {
             blocksBroken += blastArea(block.getLocation(), 1, mine, haul);
         }
 
-        // Jackhammer: clear a slab of the mine around this block. Deliberately capped in area
-        // so a late-game mine can't stall the main thread with a 250x250 sweep.
-        int jack = PickaxeEnchants.getLevel(pick, "jackhammer");
-        if (jack > 0 && random.nextInt(1000) < jack * 5) {
-            int cleared = clearLayer(block, mine, haul);
-            if (cleared > 0) {
-                blocksBroken += cleared;
-                p.sendMessage("§6Jackhammer! §7Cleared " + cleared + " blocks.");
-            }
-        }
-
         // Auto-smelt: convert ores to their smelted form.
         if (PickaxeEnchants.getLevel(pick, "autosmelt") > 0) {
             Map<Material, Integer> smelted = new HashMap<>();
@@ -149,34 +138,6 @@ public class MiningListener implements Listener {
     }
 
     /**
-     * Clears a bounded slab of the mine's current layer around the broken block.
-     * Hard-capped at RADIUS so a 250x250 late-game mine can't be swept in one
-     * synchronous tick (that would freeze the server).
-     */
-    private static final int JACKHAMMER_RADIUS = 8;
-
-    private int clearLayer(Block origin, String mine, Map<Material, Integer> haul) {
-        int[] b = mineBounds.get(mine);
-        if (b == null) return 0;
-        int y = origin.getY();
-        int broken = 0;
-        int minX = Math.max(b[0] + 1, origin.getX() - JACKHAMMER_RADIUS);
-        int maxX = Math.min(b[3] - 1, origin.getX() + JACKHAMMER_RADIUS);
-        int minZ = Math.max(b[2] + 1, origin.getZ() - JACKHAMMER_RADIUS);
-        int maxZ = Math.min(b[5] - 1, origin.getZ() + JACKHAMMER_RADIUS);
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                Block blk = origin.getWorld().getBlockAt(x, y, z);
-                if (blk.getType() == Material.AIR || blk.getType() == Material.BEDROCK) continue;
-                addHaul(haul, blk.getType(), 1);
-                blk.setType(Material.AIR);
-                broken++;
-            }
-        }
-        return broken;
-    }
-
-    /**
      * Price for a material in this mine. Returns 0 for anything that isn't one of the
      * mine's own blocks (or a smelted form of one) — a permissive fallback would let a
      * player auto-sell arbitrary junk at filler price.
@@ -218,30 +179,4 @@ public class MiningListener implements Listener {
         }
     }
 
-    /**
-     * Grants flight to players with the Flight enchant while they're inside a mine.
-     * Revoked on leaving so it can't be used to escape the map. Creative/spectator
-     * players are left alone, and flight is only cleared if this plugin granted it.
-     */
-    public void applyFlight(Player p) {
-        if (p.getGameMode() == org.bukkit.GameMode.CREATIVE
-                || p.getGameMode() == org.bukkit.GameMode.SPECTATOR) return;
-
-        boolean hasEnchant = PickaxeEnchants.getLevel(p.getInventory().getItemInMainHand(), "fly") > 0;
-        boolean inMine = mineAt(p.getLocation().getBlockX(), p.getLocation().getBlockY(),
-                p.getLocation().getBlockZ()) != null;
-
-        if (hasEnchant && inMine) {
-            if (!p.getAllowFlight()) {
-                p.setAllowFlight(true);
-                flightGranted.add(p.getUniqueId());
-            }
-        } else if (flightGranted.contains(p.getUniqueId())) {
-            p.setAllowFlight(false);
-            p.setFlying(false);
-            flightGranted.remove(p.getUniqueId());
-        }
-    }
-
-    private final java.util.Set<java.util.UUID> flightGranted = new java.util.HashSet<>();
 }

@@ -111,7 +111,6 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 scoreboardManager.update(p);
                 miningListener.applyHaste(p);
-                miningListener.applyFlight(p);
             }
         }, 20L, 20L * 3); // refresh every 3 seconds
 
@@ -122,6 +121,20 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Bukkit.getScheduler().runTaskLater(this, () -> scoreboardManager.update(e.getPlayer()), 5L);
+    }
+
+    /**
+     * Flight is deliberately not part of this server. Walking between wards is how the map
+     * reads as a place, so survival-mode players never keep flight, however they got it.
+     */
+    @EventHandler
+    public void onToggleFlight(org.bukkit.event.player.PlayerToggleFlightEvent e) {
+        Player p = e.getPlayer();
+        if (p.getGameMode() == org.bukkit.GameMode.CREATIVE
+                || p.getGameMode() == org.bukkit.GameMode.SPECTATOR) return;
+        e.setCancelled(true);
+        p.setAllowFlight(false);
+        p.setFlying(false);
     }
 
     @Override

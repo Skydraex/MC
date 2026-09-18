@@ -79,6 +79,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 scoreboardManager.update(p);
                 miningListener.applyHaste(p);
+                miningListener.applyFlight(p);
             }
         }, 20L, 20L * 3); // refresh every 3 seconds
 

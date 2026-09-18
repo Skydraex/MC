@@ -29,8 +29,6 @@ public class PrisonPlugin extends JavaPlugin {
             return;
         }
 
-        saveDefaultConfig();
-
         rankManager = new RankManager(this);
         rankManager.load();
 

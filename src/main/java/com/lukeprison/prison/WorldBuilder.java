@@ -96,7 +96,9 @@ public class WorldBuilder {
         registerPondBounds();
         registerCrateLocations();
         registerPvpZones();
-        hubSpawn = new Location(world, (HUB[0] + HUB[2]) / 2.0 + 0.5, Y + 1, 0.5);
+        // Off-centre, clear of the raised dais and its landmark column in the middle of the
+        // room — the exact centre puts players inside the dais's solid raised platform.
+        hubSpawn = new Location(world, HUB[0] + 10.5, Y + 1, 0.5);
         starterSpawn = new Location(world, STARTER[0] + 8.5, Y + 1, 0.5);
         world.setSpawnLocation(hubSpawn.getBlockX(), Y + 1, 0);
     }

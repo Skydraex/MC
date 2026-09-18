@@ -121,8 +121,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(pvpManager, this);
         getServer().getPluginManager().registerEvents(coinflipManager, this);
         getServer().getPluginManager().registerEvents(new ShopSignListener(this), this);
-        getServer().getPluginManager().registerEvents(
-                new ProtectionListener(this, worldBuilder.getMineBounds()), this);
+        ProtectionListener protectionListener = new ProtectionListener(this, worldBuilder.getMineBounds());
+        protectionListener.setLoggingBounds(worldBuilder.getLoggingBounds());
+        getServer().getPluginManager().registerEvents(protectionListener, this);
         getServer().getPluginManager().registerEvents(chatFormat, this);
         getServer().getPluginManager().registerEvents(cellManager, this);
         getServer().getPluginManager().registerEvents(shopGui, this);
@@ -156,6 +157,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
 
         resetTask = new MineResetTask(this, worldBuilder);
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
+
+        Bukkit.getScheduler().runTaskTimer(this, cellManager::checkExpiredRentals, 20L * 60, 20L * 60 * 15); // every 15 min
+        Bukkit.getScheduler().runTaskTimer(this, worldBuilder::regrowTrees, 20L * 60 * 3, 20L * 60 * 3); // every 3 min
 
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             int online = Bukkit.getOnlinePlayers().size();

@@ -23,6 +23,7 @@ public class RankManager {
     private final Map<UUID, Integer> dailyStreak = new HashMap<>();
     private final Map<UUID, java.util.Set<Long>> milestonesHit = new HashMap<>();
     private final Map<Integer, UUID> cellOwners = new HashMap<>();
+    private final Map<Integer, Long> cellExpiry = new HashMap<>();
     private File file;
     private YamlConfiguration yaml;
 
@@ -49,7 +50,10 @@ public class RankManager {
             for (long m : yaml.getLongList(key + ".milestones")) ms.add(m);
             milestonesHit.put(id, ms);
             int cell = yaml.getInt(key + ".cell", -1);
-            if (cell > 0) cellOwners.put(cell, id);
+            if (cell > 0) {
+                cellOwners.put(cell, id);
+                cellExpiry.put(cell, yaml.getLong(key + ".cellExpiry", 0));
+            }
         }
     }
 
@@ -68,6 +72,7 @@ public class RankManager {
             int owned = -1;
             for (Map.Entry<Integer, UUID> c : cellOwners.entrySet()) if (c.getValue().equals(e.getKey())) owned = c.getKey();
             yaml.set(e.getKey() + ".cell", owned);
+            yaml.set(e.getKey() + ".cellExpiry", owned > 0 ? cellExpiry.getOrDefault(owned, 0L) : 0L);
         }
         try { yaml.save(file); } catch (IOException e) { e.printStackTrace(); }
     }
@@ -116,8 +121,20 @@ public class RankManager {
         for (Map.Entry<Integer, UUID> c : cellOwners.entrySet()) if (c.getValue().equals(p.getUniqueId())) return c.getKey();
         return null;
     }
-    public void claimCell(Player p, int cell) { cellOwners.put(cell, p.getUniqueId()); }
-    public void unclaimCell(int cell) { cellOwners.remove(cell); }
+    private static final long CELL_RENT_DURATION = 72L * 60 * 60 * 1000;
+
+    public void claimCell(Player p, int cell) {
+        cellOwners.put(cell, p.getUniqueId());
+        cellExpiry.put(cell, System.currentTimeMillis() + CELL_RENT_DURATION);
+    }
+    public void unclaimCell(int cell) {
+        cellOwners.remove(cell);
+        cellExpiry.remove(cell);
+    }
+    public long getCellExpiry(int cell) { return cellExpiry.getOrDefault(cell, 0L); }
+    /** Resets the rental clock to a fresh 72 hours from now. */
+    public void renewCell(int cell) { cellExpiry.put(cell, System.currentTimeMillis() + CELL_RENT_DURATION); }
+    public Map<Integer, Long> allCellExpiry() { return cellExpiry; }
     public Map<Integer, UUID> allCellOwners() { return cellOwners; }
     public java.util.Set<UUID> knownPlayers() { return ranks.keySet(); }
     public Map<UUID, Long> allBlocksMined() { return blocksMined; }

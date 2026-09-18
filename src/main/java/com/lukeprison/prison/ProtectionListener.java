@@ -35,6 +35,7 @@ public class ProtectionListener implements Listener {
 
     private final PrisonPlugin plugin;
     private final Map<String, int[]> mineBounds;
+    private int[] loggingBounds; // set post-construction, since the plugin builds it after registering this listener
 
     /** Items that let players move or destroy terrain, so they're not usable at all. */
     private static final Set<Material> BANNED_INTERACT = Set.of(
@@ -47,6 +48,8 @@ public class ProtectionListener implements Listener {
         this.mineBounds = mineBounds;
     }
 
+    public void setLoggingBounds(int[] bounds) { this.loggingBounds = bounds; }
+
     private boolean inMine(int x, int y, int z) {
         for (int[] b : mineBounds.values()) {
             if (x > b[0] && x < b[3] && y > b[1] && y < b[4] && z > b[2] && z < b[5]) return true;
@@ -54,11 +57,16 @@ public class ProtectionListener implements Listener {
         return false;
     }
 
+    private boolean inLoggingYard(int x, int z) {
+        if (loggingBounds == null) return false;
+        return x >= loggingBounds[0] && x <= loggingBounds[2] && z >= loggingBounds[1] && z <= loggingBounds[3];
+    }
+
     private boolean bypasses(Player p) {
         return p.hasPermission("prison.admin") || p.getGameMode() == GameMode.CREATIVE;
     }
 
-    /** Breaking is confined to mines. The built map can't be dismantled. */
+    /** Breaking is confined to mines, plus tree blocks inside the logging yard. */
     @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent e) {
         Player p = e.getPlayer();
@@ -68,6 +76,9 @@ public class ProtectionListener implements Listener {
         // Shop signs and chests are handled by ShopSignListener's ownership check.
         if (type == Material.CHEST || type == Material.TRAPPED_CHEST
                 || type.name().endsWith("_SIGN")) return;
+
+        boolean isTree = type == Material.OAK_LOG || type == Material.OAK_LEAVES;
+        if (isTree && inLoggingYard(e.getBlock().getX(), e.getBlock().getZ())) return;
 
         if (!inMine(e.getBlock().getX(), e.getBlock().getY(), e.getBlock().getZ())) {
             e.setCancelled(true);

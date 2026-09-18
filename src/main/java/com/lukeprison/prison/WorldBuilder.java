@@ -9,6 +9,7 @@ import org.bukkit.block.Sign;
 import org.bukkit.block.data.type.Bed;
 import org.bukkit.block.data.type.WallSign;
 import org.bukkit.block.sign.Side;
+import org.bukkit.entity.EntityType;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
@@ -33,6 +34,7 @@ public class WorldBuilder {
     private final Map<Location, String> crateLocations = new LinkedHashMap<>();
     private final List<PvpZoneManager.Zone> pvpZones = new ArrayList<>();
     private final List<PendingSign> signs = new ArrayList<>();
+    private final List<int[]> treeBases = new ArrayList<>(); // [x, y, z] trunk base per tree
     private Location hubSpawn;
     private Location starterSpawn;
     private final Map<Integer, CellManager.CellRect> cellRects = new LinkedHashMap<>();
@@ -48,13 +50,15 @@ public class WorldBuilder {
     private static final int[] CRATES    = { -75, -75,  -45, -45};
     private static final int[] YARD      = { -40, -75,  -15, -45};
     private static final int[] FISH_PATH = {  -8,-100,   -2, -1};
+    private static final int[] LOGGING   = { 460,-240,  560,-140};
+    private static final int[] FARM      = { 460,-130,  560, -30};
     private static final int FISH_Z1 = -240, FISH_Z2 = -100;
     private static final int BYPASS_Z = -15;   // a corridor north of every mine, so wards never route through one
     private static final int CELL_SIZE = 6, CORRIDOR_WIDTH = 5;
 
     private static final int CELL_TIERS = 3;
 
-    private record PendingSign(int x, int y, int z, BlockFace facing, String[] lines) { }
+    private record PendingSign(int x, int y, int z, BlockFace facing, boolean hologram, String[] lines) { }
 
     public WorldBuilder(Plugin plugin, World world) {
         this.plugin = plugin;
@@ -69,6 +73,8 @@ public class WorldBuilder {
     public List<PvpZoneManager.Zone> getPvpZones() { return pvpZones; }
     public Location getHubSpawn() { return hubSpawn; }
     public Location getStarterSpawn() { return starterSpawn; }
+    public List<int[]> getTreeBases() { return treeBases; }
+    public int[] getLoggingBounds() { return LOGGING; }
     public Map<Integer, CellManager.CellRect> getCellRects() { return cellRects; }
 
     /**
@@ -122,6 +128,8 @@ public class WorldBuilder {
         buildWardWalkways();
         buildWardPits();
         buildFishingArea();
+        buildLoggingYard();
+        buildAnimalPens();
 
         // Openings go in last so nothing can brick them over.
         carveAllDoorways();
@@ -162,13 +170,18 @@ public class WorldBuilder {
     }
 
     /**
-     * Spawns a floating hologram beside every sign, readable from any angle instead of only
-     * face-on. Called exactly once, right after the first build — never on later restarts,
-     * since spawning entities isn't idempotent the way re-writing sign text is, and doing it
-     * every boot would pile up duplicate holograms forever.
+     * Spawns a floating hologram beside every eligible sign, readable from any angle instead of
+     * only face-on. Signs marked hologram=false are skipped — with 114 cells, giving every
+     * single one its own always-visible floating label produced a wall of overlapping text
+     * readable from across the whole room. Holograms are reserved for signs actually worth
+     * reading from a distance (ward, hub, crate, tutorial signs); cell numbers stay as plain
+     * signs you read by walking up to them, same as any real building's room numbers.
+     * Called exactly once, right after the first build — never on later restarts, since
+     * spawning entities isn't idempotent the way re-writing sign text is.
      */
     public void spawnHolograms() {
         for (PendingSign ps : signs) {
+            if (!ps.hologram) continue;
             double ox = ps.facing.getModX() * 0.65;
             double oz = ps.facing.getModZ() * 0.65;
             Location base = new Location(world, ps.x + 0.5 + ox, ps.y + 0.55, ps.z + 0.5 + oz);
@@ -185,6 +198,7 @@ public class WorldBuilder {
                 pad(STARTER, 4), pad(CORRIDOR, 3), pad(HUB, 4), pad(CELLS, 4),
                 pad(CRATES, 4), pad(YARD, 4), pad(FISH_PATH, 3),
                 {-20, FISH_Z1 - 6, 440, FISH_Z2 + 6},
+                pad(LOGGING, 5), pad(FARM, 5),
                 {HUB[2], -45, lastMineX2() + 30, 30}   // the ward line, incl. pits
         };
         for (int[] f : footprints) {
@@ -330,7 +344,12 @@ public class WorldBuilder {
 
     private static final int CELL_TIER_HEIGHT = 6;
 
-    /** Computes every cell's rectangle. Cheap math only; runs every boot so /cell always works. */
+    /**
+     * Computes every cell's rectangle. Cheap math only; runs every boot so /cell always works.
+     * Column 0 of the north row is deliberately left empty — it's the entrance vestibule that
+     * connects the hub's door straight into the central corridor, rather than the hub opening
+     * into the solid back wall of a cell.
+     */
     private void registerCellRects() {
         cellRects.clear();
         int[] r = CELLS;
@@ -340,14 +359,13 @@ public class WorldBuilder {
         int cellNumber = 1;
         for (int tier = 0; tier < CELL_TIERS; tier++) {
             int y = Y + tier * CELL_TIER_HEIGHT;
-            // North-facing row: backs against the room's north wall, door faces south (+z) into the corridor.
             int northZ = r[1] + 1;
             for (int col = 0; col < perRow; col++) {
+                if (col == 0) continue; // vestibule column, not a cell
                 int x = startX + col * CELL_SIZE;
                 cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, x, northZ, x + CELL_SIZE - 1, northZ + CELL_SIZE - 1, y));
                 cellNumber++;
             }
-            // South-facing row: backs against the corridor's far side wall, door faces north (-z) into the corridor.
             int southZ = northZ + CELL_SIZE + CORRIDOR_WIDTH;
             for (int col = 0; col < perRow; col++) {
                 int x = startX + col * CELL_SIZE;
@@ -366,6 +384,7 @@ public class WorldBuilder {
         int perRow = Math.max(1, usableWidth / CELL_SIZE);
         int startX = r[0] + 2;
         int cellNumber = 1;
+        int corridorMidZ = r[1] + 1 + CELL_SIZE + CORRIDOR_WIDTH / 2;
 
         for (int tier = 0; tier < CELL_TIERS; tier++) {
             int y = Y + tier * CELL_TIER_HEIGHT;
@@ -374,7 +393,19 @@ public class WorldBuilder {
 
             for (int col = 0; col < perRow; col++) {
                 int x = startX + col * CELL_SIZE;
-                buildCell(x, y, northZ, cellNumber++, BlockFace.SOUTH);
+                if (col == 0) {
+                    // Vestibule: clear floor and open air the full depth of the north row, so
+                    // the hub's doorway (opened straight through the wall here) leads directly
+                    // into the corridor instead of dead-ending against a cell's back wall.
+                    for (int dx = 0; dx < CELL_SIZE; dx++) {
+                        for (int dz = 0; dz < CELL_SIZE; dz++) {
+                            arch.set(x + dx, y, northZ + dz, Material.POLISHED_DEEPSLATE);
+                            for (int dy = 1; dy <= 3; dy++) arch.set(x + dx, y + dy, northZ + dz, Material.AIR);
+                        }
+                    }
+                } else {
+                    buildCell(x, y, northZ, cellNumber++, BlockFace.SOUTH);
+                }
                 buildCell(x, y, southZ, cellNumber++, BlockFace.NORTH);
             }
 
@@ -388,7 +419,6 @@ public class WorldBuilder {
         }
 
         // Stairs up through every tier at the west end of the corridor, kept clear of any cell.
-        int corridorMidZ = (r[1] + 1 + CELL_SIZE + (r[1] + 1 + CELL_SIZE + CORRIDOR_WIDTH)) / 2;
         int stairX = startX - 2;
         for (int tier = 0; tier < CELL_TIERS - 1; tier++) {
             int base = Y + tier * CELL_TIER_HEIGHT;
@@ -427,10 +457,10 @@ public class WorldBuilder {
                 arch.set(x + dx, y + dy, wallZ, dx == doorDx ? Material.AIR : Material.IRON_BARS);
             }
         }
-        placeBed(x + 1, y + 1, z + (faceSouth ? 1 : CELL_SIZE - 2), faceSouth ? BlockFace.NORTH : BlockFace.SOUTH);
+        placeBed(x + 1, y + 1, z + (faceSouth ? 1 : CELL_SIZE - 2), faceSouth ? BlockFace.SOUTH : BlockFace.NORTH);
         arch.set(x + CELL_SIZE - 2, y + 1, z + (faceSouth ? 1 : CELL_SIZE - 2), Material.BARREL);
         arch.set(x + CELL_SIZE - 2, y + 3, z + CELL_SIZE / 2, Material.LANTERN);
-        sign(x + doorDx, y + 2, faceSouth ? z + CELL_SIZE : z - 1, faceSouth ? BlockFace.SOUTH : BlockFace.NORTH,
+        signNoHologram(x + doorDx, y + 2, faceSouth ? z + CELL_SIZE : z - 1, faceSouth ? BlockFace.SOUTH : BlockFace.NORTH,
                 "§7Cell", "§f#" + number, "", "");
     }
 
@@ -529,8 +559,38 @@ public class WorldBuilder {
             arch.set(x, y, z, edge ? Material.BEDROCK : pickOre(filler, common, rare, rarePct));
         }
         placeMineLights(d);
+        cladMineFacade(d);
         // Sell sign on the ward-facing wall, beside the entrance.
         sign(d.x1 - 1, Y + 2, d.z1 + ENTRANCE_Z + 2, BlockFace.WEST, "§a[Sell]", "Mine " + d.rank + " ores", "Right-click", "holding ore");
+    }
+
+    /**
+     * Cladding for a mine's two long exterior faces and roof, one block outside the bedrock
+     * shell. The bedrock itself stays untouched (it's what protects the mine's contents) —
+     * this is a decorative skin over the outside so the building reads as a facade, not a
+     * bare grey box the size of a warehouse.
+     */
+    private void cladMineFacade(RankMineData.Def d) {
+        int height = d.y2 - d.y1;
+        for (int x = d.x1; x <= d.x2; x++) {
+            for (int y = 0; y <= height; y++) {
+                boolean pillar = (x - d.x1) % 10 < 2;
+                boolean band = y == height / 3 || y == height / 3 + 1;
+                boolean trim = y == 0 || y == height;
+                Material mat = pillar ? Material.POLISHED_BASALT
+                        : trim ? Material.SMOOTH_QUARTZ
+                        : band ? (x % 2 == 0 ? Material.LIGHT_BLUE_TERRACOTTA : Material.CYAN_TERRACOTTA)
+                        : arch.pick(Architect.WARD_INDUSTRIAL);
+                arch.set(x, d.y1 + y, d.z1 - 1, mat);
+                arch.set(x, d.y1 + y, d.z2 + 1, mat);
+            }
+        }
+        // A simple capped roof with an overhang lip, rather than a flat bedrock top.
+        for (int x = d.x1 - 1; x <= d.x2 + 1; x++) {
+            for (int z = d.z1 - 1; z <= d.z2 + 1; z++) {
+                arch.set(x, d.y2 + 1, z, Material.SMOOTH_QUARTZ);
+            }
+        }
     }
 
     private void buildWard(RankMineData.Def d) {
@@ -674,6 +734,83 @@ public class WorldBuilder {
         return Material.SCULK;
     }
 
+    // ---- Logging yard: chop trees for wood, they regrow on a timer ----
+
+    private void buildLoggingYard() {
+        int[] r = LOGGING;
+        arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.GRASS_BLOCK, Material.COARSE_DIRT, 10, Material.PODZOL, 8));
+        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.FISHING_STONE,
+                Material.STRIPPED_OAK_LOG, Material.SMOOTH_SANDSTONE, 10);
+
+        treeBases.clear();
+        int spacing = 9;
+        for (int x = r[0] + 6; x <= r[2] - 6; x += spacing) {
+            for (int z = r[1] + 6; z <= r[3] - 6; z += spacing) {
+                treeBases.add(new int[]{x, Y + 1, z});
+            }
+        }
+        for (int[] base : treeBases) plantTree(base[0], base[1], base[2]);
+
+        sign(r[0] + 2, Y + 2, r[1] + 2, BlockFace.EAST, "§2§lLOGGING YARD", "Chop the trees", "They regrow", "over time");
+        // Path back toward the fishing area / prison.
+        for (int x = r[0] - 10; x < r[0]; x++) {
+            arch.set(x, Y, (r[1] + r[3]) / 2, Material.COARSE_DIRT);
+        }
+    }
+
+    private void plantTree(int x, int y, int z) {
+        for (int dy = 0; dy < 5; dy++) arch.set(x, y + dy, z, Material.OAK_LOG);
+        for (int dy = 3; dy <= 5; dy++) {
+            int radius = dy == 5 ? 1 : 2;
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (dx == 0 && dz == 0 && dy < 5) continue; // leave the trunk showing
+                    if (Math.abs(dx) == radius && Math.abs(dz) == radius && Math.random() < 0.5) continue;
+                    arch.set(x + dx, y + dy, z + dz, Material.OAK_LEAVES);
+                }
+            }
+        }
+    }
+
+    /** Regrows any tree that's been chopped down. Called on a timer, same idea as a mine reset. */
+    public void regrowTrees() {
+        for (int[] base : treeBases) {
+            if (world.getBlockAt(base[0], base[1] + 2, base[2]).getType() == Material.OAK_LOG) continue; // still standing
+            plantTree(base[0], base[1], base[2]);
+        }
+    }
+
+    // ---- Animal pens: cow and pig spawners for hide, meat, and wool-adjacent farming ----
+
+    private void buildAnimalPens() {
+        int[] r = FARM;
+        arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.GRASS_BLOCK, Material.COARSE_DIRT, 12));
+        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 3, Architect.FISHING_STONE,
+                Material.STRIPPED_OAK_LOG, Material.SMOOTH_SANDSTONE, 8);
+        // A dividing fence splitting the pen into a cow side and a pig side.
+        int midX = (r[0] + r[2]) / 2;
+        for (int z = r[1] + 1; z < r[3]; z++) {
+            arch.set(midX, Y + 1, z, Material.OAK_FENCE);
+        }
+
+        placeAnimalSpawner(r[0] + (midX - r[0]) / 2, Y + 1, (r[1] + r[3]) / 2, EntityType.COW);
+        placeAnimalSpawner(midX + (r[2] - midX) / 2, Y + 1, (r[1] + r[3]) / 2, EntityType.PIG);
+
+        sign(r[0] + 2, Y + 2, r[1] + 2, BlockFace.EAST, "§6§lFARM", "Cows: west pen", "Pigs: east pen", "Kill for drops");
+    }
+
+    private void placeAnimalSpawner(int x, int y, int z, EntityType type) {
+        Block b = world.getBlockAt(x, y, z);
+        b.setType(Material.SPAWNER, false);
+        if (b.getState() instanceof org.bukkit.block.CreatureSpawner cs) {
+            cs.setSpawnedType(type);
+            cs.setSpawnRange(6);
+            cs.setMaxNearbyEntities(8);
+            cs.setDelay(400); // ~20s between spawn attempts
+            cs.update(true, false);
+        }
+    }
+
     // ---- Doorways: carved last so nothing can brick them over ----
 
     private void carveAllDoorways() {
@@ -684,15 +821,21 @@ public class WorldBuilder {
         arch.doorway(HUB[0], Y + 1, 0, true, 1, 4, f);                      // hub west
         arch.doorway(HUB[2], Y + 1, ENTRANCE_Z, true, 3, 6, f);             // hub → wards: grand gate
         int hubMidX = (HUB[0] + HUB[2]) / 2;
+        int cellEntranceX = CELLS[0] + 2 + CELL_SIZE / 2; // centre of the vestibule column
         arch.doorway(hubMidX, Y + 1, HUB[3], false, 2, 5, f);               // hub → cell block
-        arch.doorway(hubMidX, Y + 1, CELLS[1], false, 2, 5, f);
+        arch.doorway(cellEntranceX, Y + 1, CELLS[1], false, 2, 5, f);       // opens into the vestibule, not a cell wall
         int crateMid = (CRATES[0] + CRATES[2]) / 2, yardMid = (YARD[0] + YARD[2]) / 2;
         arch.doorway(crateMid, Y + 1, HUB[1], false, 1, 4, f);              // hub → crate hall
         arch.doorway(crateMid, Y + 1, CRATES[3], false, 1, 4, f);
         arch.doorway(yardMid, Y + 1, HUB[1], false, 1, 4, f);               // hub → yard
         arch.doorway(yardMid, Y + 1, YARD[3], false, 1, 4, f);
         // Connector paths between hub and its three annexes.
-        connector(hubMidX, HUB[3] + 1, CELLS[1] - 1, 2);
+        // L-shaped route: the cell block is now much wider than the hub, so its entrance
+        // (above the vestibule column) doesn't line up on the same X as the hub's own door.
+        int cellCorridorZ = HUB[3] + 6;
+        connector(hubMidX, HUB[3] + 1, cellCorridorZ, 2);
+        walkway(cellEntranceX, hubMidX, cellCorridorZ, 2);
+        connector(cellEntranceX, cellCorridorZ, CELLS[1] - 1, 2);
         connector(crateMid, CRATES[3] + 1, HUB[1] - 1, 1);
         connector(yardMid, YARD[3] + 1, HUB[1] - 1, 1);
 
@@ -714,6 +857,17 @@ public class WorldBuilder {
         }
         // Fishing path into the fishing area's north wall.
         arch.doorway((FISH_PATH[0] + FISH_PATH[2]) / 2, Y + 1, FISH_Z2, false, 2, 4, Material.CHISELED_SANDSTONE);
+
+        // Fishing area's east edge → logging yard's west wall.
+        int loggingMidZ = (LOGGING[1] + LOGGING[3]) / 2;
+        arch.doorway(LOGGING[0], Y + 1, loggingMidZ, true, 2, 4, Material.SMOOTH_SANDSTONE);
+        walkway(400, LOGGING[0] - 1, loggingMidZ, 2);
+
+        // Logging yard's south wall → farm's north wall.
+        int farmMidX = (FARM[0] + FARM[2]) / 2;
+        arch.doorway(farmMidX, Y + 1, LOGGING[3], false, 2, 4, Material.SMOOTH_SANDSTONE);
+        arch.doorway(farmMidX, Y + 1, FARM[1], false, 2, 4, Material.SMOOTH_SANDSTONE);
+        connector(farmMidX, LOGGING[3] + 1, FARM[1] - 1, 2);
     }
 
     /** A short floored, railed path along Z between two doorways. */
@@ -732,7 +886,13 @@ public class WorldBuilder {
     // ---- Helpers ----
 
     private void sign(int x, int y, int z, BlockFace facing, String... lines) {
-        signs.add(new PendingSign(x, y, z, facing, lines));
+        signs.add(new PendingSign(x, y, z, facing, true, lines));
+    }
+
+    /** For high-count, low-value labels (e.g. cell numbers) where a floating hologram per
+     *  instance would just clutter the view — these stay as plain, read-up-close signs. */
+    private void signNoHologram(int x, int y, int z, BlockFace facing, String... lines) {
+        signs.add(new PendingSign(x, y, z, facing, false, lines));
     }
 
     private void placeBed(int x, int y, int z, BlockFace facing) {
@@ -767,7 +927,8 @@ public class WorldBuilder {
     }
 
     private void setupWorldBorder() {
-        int minX = STARTER[0] - 20, maxX = lastMineX2() + 40, minZ = FISH_Z1 - 20, maxZ = CELLS[3] + 20;
+        int minX = STARTER[0] - 20, maxX = Math.max(lastMineX2() + 40, FARM[2] + 20);
+        int minZ = FISH_Z1 - 20, maxZ = CELLS[3] + 20;
         for (int[] b : mineBounds.values()) maxZ = Math.max(maxZ, b[5] + 20);
         world.getWorldBorder().setCenter((minX + maxX) / 2.0, (minZ + maxZ) / 2.0);
         world.getWorldBorder().setSize(Math.max(maxX - minX, maxZ - minZ) + 40);

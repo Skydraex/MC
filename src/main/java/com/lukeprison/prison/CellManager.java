@@ -28,6 +28,35 @@ public class CellManager implements Listener {
     }
 
     private static final double CLAIM_COST = 25_000;
+    private static final double RENEW_COST = 5_000;
+
+    /** " (Nh left)" / " (EXPIRED)" appended to /cell info, or blank if unowned. */
+    private String timeLeftSuffix(int cell) {
+        long expiry = plugin.ranks().getCellExpiry(cell);
+        if (expiry <= 0) return "";
+        long msLeft = expiry - System.currentTimeMillis();
+        if (msLeft <= 0) return " §c(rental expired)";
+        long hoursLeft = msLeft / (60 * 60 * 1000);
+        return " §7(" + hoursLeft + "h left)";
+    }
+
+    /**
+     * Called periodically. Any cell whose 72-hour rental has lapsed is released automatically,
+     * so an inactive renter doesn't permanently squat on a cell someone else wants.
+     */
+    public void checkExpiredRentals() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<Integer, Long> e : new java.util.HashMap<>(plugin.ranks().allCellExpiry()).entrySet()) {
+            if (e.getValue() > 0 && e.getValue() < now) {
+                UUID former = plugin.ranks().cellOwner(e.getKey());
+                plugin.ranks().unclaimCell(e.getKey());
+                if (former != null) {
+                    Player p = Bukkit.getPlayer(former);
+                    if (p != null) p.sendMessage("§eYour cell rental expired and has been released.");
+                }
+            }
+        }
+    }
 
     private final PrisonPlugin plugin;
     private final Map<Integer, CellRect> cells;
@@ -88,7 +117,7 @@ public class CellManager implements Listener {
                     }
                     plugin.economy().withdrawPlayer(p, CLAIM_COST);
                     plugin.ranks().claimCell(p, cell.number());
-                    p.sendMessage("§aCell #" + cell.number() + " is yours. §7/cell home §ato return here.");
+                    p.sendMessage("§aCell #" + cell.number() + " is yours for 72 hours. §7/cell home §ato return, §7/cell renew §abefore it expires.");
                     p.playSound(p.getLocation(), Sound.BLOCK_IRON_DOOR_CLOSE, 1f, 1f);
                     plugin.scoreboard().update(p);
                 }
@@ -113,14 +142,30 @@ public class CellManager implements Listener {
                     CellRect cell = cellAt(p.getLocation());
                     if (cell == null) { p.sendMessage("§7You're not in a cell."); return true; }
                     UUID owner = plugin.ranks().cellOwner(cell.number());
-                    String who = owner == null ? "§aunclaimed" : "§f" + plugin.getServer().getOfflinePlayer(owner).getName();
-                    p.sendMessage("§7Cell #" + cell.number() + " — " + who);
+                    if (owner == null) {
+                        p.sendMessage("§7Cell #" + cell.number() + " — §aunclaimed");
+                    } else {
+                        String who = plugin.getServer().getOfflinePlayer(owner).getName();
+                        p.sendMessage("§7Cell #" + cell.number() + " — §f" + who + timeLeftSuffix(cell.number()));
+                    }
+                }
+                case "renew" -> {
+                    Integer n = plugin.ranks().cellOf(p);
+                    if (n == null) { p.sendMessage("§cYou don't own a cell."); return true; }
+                    if (!plugin.economy().has(p, RENEW_COST)) {
+                        p.sendMessage("§cRenewing costs §6$" + String.format("%,.0f", RENEW_COST) + "§c.");
+                        return true;
+                    }
+                    plugin.economy().withdrawPlayer(p, RENEW_COST);
+                    plugin.ranks().renewCell(n);
+                    p.sendMessage("§aCell #" + n + " renewed for another 72 hours.");
                 }
                 default -> {
-                    p.sendMessage("§6/cell §7claim §8— claim the cell you're standing in ($" + String.format("%,.0f", CLAIM_COST) + ")");
+                    p.sendMessage("§6/cell §7claim §8— rent the cell you're standing in for 72h ($" + String.format("%,.0f", CLAIM_COST) + ")");
                     p.sendMessage("§6/cell §7home §8— teleport to your cell");
-                    p.sendMessage("§6/cell §7info §8— who owns this cell");
-                    p.sendMessage("§6/cell §7unclaim §8— give up your cell");
+                    p.sendMessage("§6/cell §7renew §8— extend your rental by 72h ($" + String.format("%,.0f", RENEW_COST) + ")");
+                    p.sendMessage("§6/cell §7info §8— who owns this cell, and time left");
+                    p.sendMessage("§6/cell §7unclaim §8— give up your cell early");
                 }
             }
             return true;

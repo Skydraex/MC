@@ -4,6 +4,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
 import org.bukkit.block.sign.Side;
 import org.bukkit.plugin.Plugin;
@@ -28,6 +29,7 @@ public class WorldBuilder {
     private final Map<Location, SellSignListener.SellSignData> sellSigns = new HashMap<>();
     private Location hubSpawn;
     private Location starterSpawn;
+    private final Architect arch;
 
     // ---- Layout constants -------------------------------------------------
     private static final int GROUND_Y = 94;
@@ -48,6 +50,7 @@ public class WorldBuilder {
     public WorldBuilder(Plugin plugin, World world) {
         this.plugin = plugin;
         this.world = world;
+        this.arch = new Architect(world);
     }
 
     public Map<String, int[]> getMineBounds() { return mineBounds; }
@@ -199,94 +202,172 @@ public class WorldBuilder {
     // ---- Hub --------------------------------------------------------------
 
     private void buildHub() {
-        int wallTop = GROUND_Y + 8;
-        floor(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, GROUND_Y, Material.POLISHED_ANDESITE);
-        hollow(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, GROUND_Y + 1, wallTop - 1);
-        perimeter(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, GROUND_Y + 1, wallTop - 1, Material.GRAY_CONCRETE);
-        ceiling(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, wallTop, Material.GRAY_CONCRETE);
-        lightGrid(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, wallTop - 1, 6, Material.SEA_LANTERN);
+        int height = 9;
 
-        // Doorways: west to the intake corridor, east to the wards, north to the cell block.
-        carve(HUB_X1, GROUND_Y + 1, 0, 1, 3);
-        carve(HUB_X2, GROUND_Y + 1, ENTRANCE_Z, 1, 3);
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(HUB_X1 + 18 + dx, GROUND_Y + dy, HUB_Z2).setType(Material.AIR);
+        // Detailed room: recessed concrete panels, polished-andesite pillars on a 5-block
+        // rhythm, chiseled trim courses, overhanging roof, lighting set into the ceiling.
+        arch.room(HUB_X1, HUB_Z1, HUB_X2, HUB_Z2, GROUND_Y, height,
+                Architect.HUB_CONCRETE,
+                Material.POLISHED_ANDESITE,      // pillars
+                Material.CHISELED_STONE_BRICKS,  // trim courses
+                Material.POLISHED_ANDESITE,      // floor
+                Material.POLISHED_BLACKSTONE,    // floor band
+                Material.GRAY_CONCRETE,          // roof
+                Material.STONE_BRICK_STAIRS,     // overhang stairs
+                Material.SEA_LANTERN);
+
+        // Barred window slits along the long walls with stair sills beneath.
+        arch.windowRun(HUB_X1, GROUND_Y + 1, HUB_Z1, HUB_X2, 6, 3,
+                Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
+        arch.windowRun(HUB_X1, GROUND_Y + 1, HUB_Z2, HUB_X2, 6, 3,
+                Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
+
+        // Framed doorways: west to intake, east to the wards, north to the cell block.
+        arch.doorway(HUB_X1, GROUND_Y + 1, 0, true, 1, 4, Material.CHISELED_STONE_BRICKS);
+        arch.doorway(HUB_X2, GROUND_Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_STONE_BRICKS);
+        arch.doorway(HUB_X1 + 18, GROUND_Y + 1, HUB_Z2, false, 1, 4, Material.CHISELED_STONE_BRICKS);
+
+        // A raised central dais so the room has a focal point rather than being an empty hall.
+        int cx = (HUB_X1 + HUB_X2) / 2, cz = 0;
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 4) continue;
+                arch.set(cx + dx, GROUND_Y, cz + dz, Material.POLISHED_BLACKSTONE);
             }
         }
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 3) continue;
+                arch.set(cx + dx, GROUND_Y + 1, cz + dz, Material.POLISHED_BLACKSTONE_BRICKS);
+            }
+        }
+        // Central beacon-like column for a landmark silhouette.
+        for (int dy = 2; dy <= 5; dy++) {
+            arch.set(cx, GROUND_Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
+        }
+        arch.set(cx, GROUND_Y + 6, cz, Material.SEA_LANTERN);
+        for (BlockFaceOffset o : CARDINALS) {
+            arch.placeStair(cx + o.dx, GROUND_Y + 2, cz + o.dz,
+                    Material.POLISHED_BLACKSTONE_STAIRS, o.facing, false);
+        }
 
-        sign(HUB_X1 + 6, GROUND_Y + 2, 2, "§6§lTHE HUB", "/prison  menu", "/warps  mines", "/fishing  ponds");
+        sign(HUB_X1 + 6, GROUND_Y + 2, 2, "\u00a76\u00a7lTHE HUB", "/prison  menu", "/warps  mines", "/fishing  ponds");
 
         // Walkway from the hub's east door to Mine A.
         RankMineData.Def mineA = RankMineData.RANKS.get("A");
         if (mineA != null) {
             for (int x = HUB_X2 + 1; x < mineA.x1; x++) {
                 for (int z = ENTRANCE_Z - 2; z <= ENTRANCE_Z + 2; z++) {
-                    world.getBlockAt(x, mineA.y1, z).setType(Material.SMOOTH_STONE);
+                    boolean edge = z == ENTRANCE_Z - 2 || z == ENTRANCE_Z + 2;
+                    arch.set(x, mineA.y1, z, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
+                }
+                // Lamp posts down the walkway at intervals.
+                if ((x - HUB_X2) % 6 == 0) {
+                    for (int dy = 1; dy <= 3; dy++) {
+                        arch.set(x, mineA.y1 + dy, ENTRANCE_Z - 3, Material.POLISHED_BLACKSTONE_WALL);
+                    }
+                    arch.set(x, mineA.y1 + 4, ENTRANCE_Z - 3, Material.LANTERN);
                 }
             }
         }
     }
+
+    /** Small helper for placing stairs on the four cardinal sides of a point. */
+    private record BlockFaceOffset(int dx, int dz, BlockFace facing) { }
+
+    private static final BlockFaceOffset[] CARDINALS = {
+            new BlockFaceOffset(1, 0, BlockFace.WEST),
+            new BlockFaceOffset(-1, 0, BlockFace.EAST),
+            new BlockFaceOffset(0, 1, BlockFace.NORTH),
+            new BlockFaceOffset(0, -1, BlockFace.SOUTH)
+    };
 
     // ---- Cell block (100 cells) -------------------------------------------
 
     private void buildCellBlock() {
         int blockX1 = HUB_X1 + 10;
-        int blockX2 = blockX1 + (CELLS_PER_ROW * CELL_SIZE) + 3;
-        int blockZ1 = CELL_Z_START;
-        int blockZ2 = blockZ1 + (CELL_ROWS * CELL_SIZE) + 3;
+        int blockX2 = blockX1 + (CELLS_PER_ROW * CELL_SIZE) + 5;
+        int blockZ1 = CELL_Z_START - 4;
+        int blockZ2 = blockZ1 + (CELL_ROWS * CELL_SIZE) + 10;
+        int hallHeight = 14; // tall enough for a two-tier cell block
 
-        floor(blockX1 - 2, blockZ1 - 4, blockX2 + 2, blockZ2 + 2, GROUND_Y, Material.POLISHED_ANDESITE);
-        perimeter(blockX1 - 2, blockZ1 - 4, blockX2 + 2, blockZ2 + 2, GROUND_Y + 1, GROUND_Y + 7,
-                Material.GRAY_CONCRETE);
-        ceiling(blockX1 - 2, blockZ1 - 4, blockX2 + 2, blockZ2 + 2, GROUND_Y + 8, Material.GRAY_CONCRETE);
-        lightGrid(blockX1 - 2, blockZ1 - 4, blockX2 + 2, blockZ2 + 2, GROUND_Y + 7, 7, Material.SEA_LANTERN);
+        arch.room(blockX1 - 3, blockZ1, blockX2 + 3, blockZ2, GROUND_Y, hallHeight,
+                Architect.CELL_STONE,
+                Material.POLISHED_DEEPSLATE,
+                Material.CHISELED_DEEPSLATE,
+                Material.POLISHED_DEEPSLATE,
+                Material.POLISHED_BLACKSTONE,
+                Material.DEEPSLATE_TILES,
+                Material.DEEPSLATE_BRICK_STAIRS,
+                Material.SEA_LANTERN);
 
-        // Corridor opening back toward the hub.
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(HUB_X1 + 18 + dx, GROUND_Y + dy, blockZ1 - 4).setType(Material.AIR);
-            }
-        }
+        // High window slits so the hall reads as a real cell block interior.
+        arch.windowRun(blockX1 - 3, GROUND_Y + 1, blockZ1, blockX2 + 3, 7, 9,
+                Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
+        arch.windowRun(blockX1 - 3, GROUND_Y + 1, blockZ2, blockX2 + 3, 7, 9,
+                Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
 
+        arch.doorway(HUB_X1 + 18, GROUND_Y + 1, blockZ1, false, 1, 4, Material.CHISELED_DEEPSLATE);
+
+        // Two tiers of cells facing a central gantry walkway.
         int cellNumber = 1;
-        for (int row = 0; row < CELL_ROWS; row++) {
-            for (int col = 0; col < CELLS_PER_ROW; col++) {
-                int cx = blockX1 + col * CELL_SIZE;
-                int cz = blockZ1 + row * CELL_SIZE;
-                buildCell(cx, cz, cellNumber++);
+        int tierHeight = 5;
+        for (int tier = 0; tier < 2; tier++) {
+            int y = GROUND_Y + tier * tierHeight;
+            for (int row = 0; row < CELL_ROWS / 2; row++) {
+                int cz = CELL_Z_START + row * (CELL_SIZE + 3);
+                for (int col = 0; col < CELLS_PER_ROW; col++) {
+                    int cx = blockX1 + col * CELL_SIZE;
+                    buildCell(cx, y, cz, cellNumber++);
+                }
+                // Railed gantry in front of each row.
+                for (int x = blockX1 - 2; x <= blockX2; x++) {
+                    arch.set(x, y, cz - 1, Material.POLISHED_DEEPSLATE);
+                    arch.set(x, y, cz - 2, Material.DEEPSLATE_TILE_SLAB);
+                    if (tier > 0) arch.set(x, y + 1, cz - 2, Material.DEEPSLATE_BRICK_WALL);
+                }
+            }
+            // Stairs linking the tiers.
+            if (tier == 0) {
+                for (int i = 0; i < tierHeight; i++) {
+                    arch.placeStair(blockX2 + 1, GROUND_Y + i, CELL_Z_START + i,
+                            Material.DEEPSLATE_BRICK_STAIRS, BlockFace.NORTH, false);
+                    arch.set(blockX2 + 2, GROUND_Y + i, CELL_Z_START + i, Material.POLISHED_DEEPSLATE);
+                }
             }
         }
 
-        sign(blockX1, GROUND_Y + 2, blockZ1 - 3,
-                "§8§lCELL BLOCK", CELL_ROWS * CELLS_PER_ROW + " cells", "Claim one", "at your rank.");
+        sign(blockX1, GROUND_Y + 2, blockZ1 + 1,
+                "\u00a78\u00a7lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW) + " cells", "Two tiers", "");
     }
 
-    private void buildCell(int x, int z, int number) {
-        int y = GROUND_Y;
+    private void buildCell(int x, int y, int z, int number) {
         for (int dx = 0; dx < CELL_SIZE; dx++) {
             for (int dz = 0; dz < CELL_SIZE; dz++) {
                 for (int dy = 1; dy <= 4; dy++) {
                     boolean wall = dx == 0 || dx == CELL_SIZE - 1 || dz == 0 || dz == CELL_SIZE - 1;
-                    Block b = world.getBlockAt(x + dx, y + dy, z + dz);
                     if (dy == 4) {
-                        b.setType(Material.GRAY_CONCRETE);
+                        arch.set(x + dx, y + dy, z + dz, Material.DEEPSLATE_TILES);
                     } else if (wall) {
-                        // Front face is barred so the block reads as a row of cells.
                         boolean front = dz == 0 && dx > 0 && dx < CELL_SIZE - 1;
-                        b.setType(front ? Material.IRON_BARS : Material.GRAY_CONCRETE);
+                        arch.set(x + dx, y + dy, z + dz,
+                                front ? Material.IRON_BARS : arch.pick(Architect.CELL_STONE));
                     } else {
-                        b.setType(Material.AIR);
+                        arch.set(x + dx, y + dy, z + dz, Material.AIR);
                     }
                 }
+                arch.set(x + dx, y, z + dz, Material.POLISHED_DEEPSLATE);
             }
         }
-        // Cell door, bed and a light.
-        world.getBlockAt(x + 2, y + 1, z).setType(Material.AIR);
-        world.getBlockAt(x + 2, y + 2, z).setType(Material.AIR);
-        world.getBlockAt(x + 1, y + 1, z + CELL_SIZE - 2).setType(Material.RED_BED);
-        world.getBlockAt(x + CELL_SIZE - 2, y + 3, z + CELL_SIZE - 2).setType(Material.LANTERN);
-        sign(x + 3, y + 2, z, "§7Cell", "§f#" + number, "", "");
+        // Doorway, bunk, storage and a wall lantern — furnished rather than empty.
+        arch.set(x + 2, y + 1, z, Material.AIR);
+        arch.set(x + 2, y + 2, z, Material.AIR);
+        arch.placeStair(x + 2, y + 3, z, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.SOUTH, true);
+        arch.set(x + 1, y + 1, z + CELL_SIZE - 2, Material.RED_BED);
+        arch.placeSlab(x + 1, y + 2, z + CELL_SIZE - 3, Material.DEEPSLATE_TILE_SLAB, false);
+        arch.set(x + CELL_SIZE - 2, y + 1, z + CELL_SIZE - 2, Material.BARREL);
+        arch.set(x + CELL_SIZE - 2, y + 3, z + 1, Material.LANTERN);
+        sign(x + 3, y + 2, z, "\u00a77Cell", "\u00a7f#" + number, "", "");
     }
 
     // ---- Mines and wards --------------------------------------------------
@@ -343,29 +424,42 @@ public class WorldBuilder {
         }
     }
 
-    /** A small signed antechamber fronting each mine — the rank's "ward". */
+    /** A detailed antechamber fronting each mine - the rank's ward. */
     private void buildWard(RankMineData.Def d) {
         int entranceZ = d.z1 + ENTRANCE_Z;
         int wx2 = d.x1 - 2;
-        int wx1 = wx2 - 9;
-        int wz1 = entranceZ - 5;
-        int wz2 = entranceZ + 5;
+        int wx1 = wx2 - 13;
+        int wz1 = entranceZ - 7;
+        int wz2 = entranceZ + 7;
 
-        floor(wx1, wz1, wx2, wz2, d.y1, Material.POLISHED_ANDESITE);
-        perimeter(wx1, wz1, wx2, wz2, d.y1 + 1, d.y1 + 5, Material.GRAY_CONCRETE);
-        ceiling(wx1, wz1, wx2, wz2, d.y1 + 6, Material.GRAY_CONCRETE);
-        world.getBlockAt((wx1 + wx2) / 2, d.y1 + 5, entranceZ).setType(Material.SEA_LANTERN);
+        arch.room(wx1, wz1, wx2, wz2, d.y1, 8,
+                Architect.WARD_INDUSTRIAL,
+                Material.POLISHED_BASALT,
+                Material.CHISELED_DEEPSLATE,
+                Material.POLISHED_DEEPSLATE,
+                Material.POLISHED_BLACKSTONE,
+                Material.DEEPSLATE_TILES,
+                Material.DEEPSLATE_TILE_STAIRS,
+                Material.SEA_LANTERN);
 
-        // Doorways through both ends so the ward sits on the walkway.
-        for (int dz = -1; dz <= 1; dz++) {
-            for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(wx1, d.y1 + dy, entranceZ + dz).setType(Material.AIR);
-                world.getBlockAt(wx2, d.y1 + dy, entranceZ + dz).setType(Material.AIR);
-            }
+        arch.doorway(wx1, d.y1 + 1, entranceZ, true, 1, 4, Material.CHISELED_DEEPSLATE);
+        arch.doorway(wx2, d.y1 + 1, entranceZ, true, 1, 4, Material.CHISELED_DEEPSLATE);
+
+        // Rails flanking the route through, so the ward guides movement toward the mine.
+        for (int x = wx1 + 1; x < wx2; x++) {
+            arch.set(x, d.y1 + 1, entranceZ - 3, Material.DEEPSLATE_BRICK_WALL);
+            arch.set(x, d.y1 + 1, entranceZ + 3, Material.DEEPSLATE_BRICK_WALL);
         }
 
+        // Rank marker column.
+        int bx = wx1 + 3, bz = wz1 + 2;
+        for (int dy = 1; dy <= 5; dy++) {
+            arch.set(bx, d.y1 + dy, bz, Material.POLISHED_BASALT);
+        }
+        arch.set(bx, d.y1 + 6, bz, Material.SEA_LANTERN);
+
         sign(wx1 + 2, d.y1 + 2, wz1 + 1,
-                "§6§l" + d.rank + "-WARD",
+                "\u00a76\u00a7l" + d.rank + "-WARD",
                 "Mine " + d.rank,
                 "Rare: " + prettyName(d.rare),
                 String.format("%.0f%% rare", rarePercentFor(d.rank)));

@@ -5,11 +5,26 @@ api-version: '26.2'
 depend: [Vault]
 commands:
   rankup:
-    description: Rank up to the next rank if you can afford it
+    description: Open the ranks menu and rank up
   rank:
     description: Show your current rank and progress
   prestige:
     description: Prestige once you reach Free
+  prison:
+    description: Open the main prison menu
+    aliases: [menu, pmenu]
+  warps:
+    description: Teleport to an unlocked mine
+    aliases: [mines, warp]
+  enchant:
+    description: Spend tokens on pickaxe enchants
+    aliases: [enchants, ce]
+  tokens:
+    description: Check your token balance
+    aliases: [token, bal-tokens]
+  autosell:
+    description: Toggle selling blocks instantly as you mine
+    aliases: [as]
 permissions:
   prison.admin:
     default: op

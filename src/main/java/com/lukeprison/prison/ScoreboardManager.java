@@ -33,11 +33,12 @@ public class ScoreboardManager {
             nextLine = "§f" + next.rank + " §7- $" + format(next.cost);
         }
 
-        setLine(board, obj, 5, "§7Rank: §e" + rankLine);
-        setLine(board, obj, 4, "§7Balance: §a$" + format(balance));
+        setLine(board, obj, 6, "§7Rank: §e" + rankLine);
+        setLine(board, obj, 5, "§7Balance: §a$" + format(balance));
+        setLine(board, obj, 4, "§7Tokens: §b" + plugin.ranks().getTokens(p));
         setLine(board, obj, 3, "§7Next: " + nextLine);
         setLine(board, obj, 2, " ");
-        setLine(board, obj, 1, "§7mc.yourserver.net");
+        setLine(board, obj, 1, "§7/prison for menu");
 
         p.setScoreboard(board);
     }

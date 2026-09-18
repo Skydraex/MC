@@ -53,18 +53,33 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
 
         scoreboardManager = new ScoreboardManager(this);
         ranksGUI = new RanksGUI(this);
+        EnchantGUI enchantGUI = new EnchantGUI(this);
+        MenuGUI menuGUI = new MenuGUI(this, ranksGUI, enchantGUI, worldBuilder.getMineBounds());
+        MiningListener miningListener = new MiningListener(this, worldBuilder.getMineBounds());
+
         getServer().getPluginManager().registerEvents(ranksGUI, this);
+        getServer().getPluginManager().registerEvents(enchantGUI, this);
+        getServer().getPluginManager().registerEvents(menuGUI, this);
+        getServer().getPluginManager().registerEvents(miningListener, this);
         getServer().getPluginManager().registerEvents(this, this);
 
         getCommand("rankup").setExecutor(new RankUpCommand(this, ranksGUI));
         getCommand("rank").setExecutor(new RankInfoCommand(this));
         getCommand("prestige").setExecutor(new PrestigeCommand(this));
+        getCommand("prison").setExecutor(new SimpleCommands.PrisonMenu(menuGUI));
+        getCommand("warps").setExecutor(new SimpleCommands.Warps(menuGUI));
+        getCommand("enchant").setExecutor(new SimpleCommands.Enchant(enchantGUI));
+        getCommand("tokens").setExecutor(new SimpleCommands.Tokens(this));
+        getCommand("autosell").setExecutor(new SimpleCommands.AutoSell(this));
 
         resetTask = new MineResetTask(this, worldBuilder);
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
 
         Bukkit.getScheduler().runTaskTimer(this, () -> {
-            for (Player p : Bukkit.getOnlinePlayers()) scoreboardManager.update(p);
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                scoreboardManager.update(p);
+                miningListener.applyHaste(p);
+            }
         }, 20L, 20L * 3); // refresh every 3 seconds
 
         getLogger().info("PrisonPlugin fully built and enabled — " + RankMineData.RANKS.size() + " ranks, "

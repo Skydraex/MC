@@ -24,12 +24,15 @@ public class KitListener implements Listener {
         Player p = e.getPlayer();
         if (plugin.ranks().hasReceivedKit(p)) return;
 
-        p.getInventory().addItem(new ItemStack(Material.WOODEN_PICKAXE));
+        ItemStack starter = new ItemStack(Material.WOODEN_PICKAXE);
+        PickaxeEnchants.refreshLore(starter);
+        p.getInventory().addItem(starter);
         p.getInventory().addItem(new ItemStack(Material.TORCH, 16));
         plugin.ranks().markKitGiven(p);
 
         if (hubSpawn != null) p.teleport(hubSpawn);
 
-        p.sendMessage("§aWelcome to the prison. You've been given a starter pickaxe — head out to Mine A to begin.");
+        p.sendMessage("§aWelcome to the prison. You've been given a starter pickaxe.");
+        p.sendMessage("§7Type §f/prison §7to open the main menu, or head out to Mine A to begin.");
     }
 }

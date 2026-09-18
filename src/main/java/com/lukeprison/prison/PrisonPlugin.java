@@ -138,9 +138,17 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
 
         Bukkit.getScheduler().runTaskTimer(this, () -> {
+            int online = Bukkit.getOnlinePlayers().size();
+            int max = Bukkit.getMaxPlayers();
+            net.kyori.adventure.text.Component bar = net.kyori.adventure.text.Component.text()
+                    .append(net.kyori.adventure.text.Component.text("There are currently ", net.kyori.adventure.text.format.NamedTextColor.AQUA))
+                    .append(net.kyori.adventure.text.Component.text(online + "/" + max, net.kyori.adventure.text.format.NamedTextColor.GREEN))
+                    .append(net.kyori.adventure.text.Component.text(" inmates online", net.kyori.adventure.text.format.NamedTextColor.AQUA))
+                    .build();
             for (Player p : Bukkit.getOnlinePlayers()) {
                 scoreboardManager.update(p);
                 miningListener.applyHaste(p);
+                p.sendActionBar(bar);
             }
         }, 20L, 20L * 3); // refresh every 3 seconds
 

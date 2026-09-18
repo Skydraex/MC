@@ -43,13 +43,13 @@ public class WorldBuilder {
     private static final int[] STARTER   = {-170, -20, -130, 20};
     private static final int[] CORRIDOR  = {-130,  -5,  -76,  5};
     private static final int[] HUB       = { -75, -30,  -15, 30};
-    private static final int[] CELLS     = { -75,  45,  -15, 115};
+    private static final int[] CELLS     = { -75,  45,  -15, 100};
     private static final int[] CRATES    = { -75, -75,  -45, -45};
     private static final int[] YARD      = { -40, -75,  -15, -45};
     private static final int[] FISH_PATH = {  -8,-100,   -2, -1};
     private static final int FISH_Z1 = -240, FISH_Z2 = -100;
 
-    private static final int CELLS_PER_ROW = 10, CELL_ROWS = 5, CELL_SIZE = 7, CELL_TIERS = 2;
+    private static final int CELLS_PER_ROW = 10, CELL_ROWS = 4, CELL_SIZE = 7, CELL_TIERS = 3;
 
     private record PendingSign(int x, int y, int z, BlockFace facing, String[] lines) { }
 
@@ -181,12 +181,23 @@ public class WorldBuilder {
     private void buildStarterArea() {
         int[] r = STARTER;
         arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.GRAY_CONCRETE_POWDER, Material.GRAVEL, 25));
-        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 7, Architect.PRISON_STONE,
-                Material.POLISHED_DEEPSLATE, Material.CHISELED_STONE_BRICKS, 6);
-        // Open-air yard, so lighting sits on wall-top posts rather than a ceiling.
-        for (int x = r[0]; x <= r[2]; x += 6) {
-            arch.set(x, Y + 8, r[1], Material.LANTERN);
-            arch.set(x, Y + 8, r[3], Material.LANTERN);
+        arch.prisonWall(r[0], Y + 1, r[1], r[2], r[3], 8, 6);
+        arch.barbedWireTop(r[0], r[1], r[2], r[3], Y + 9);
+        // Open-air yard: lamp posts inside the wall line rather than a ceiling.
+        for (int x = r[0] + 4; x <= r[2] - 4; x += 8) {
+            for (int dy = 1; dy <= 3; dy++) {
+                arch.set(x, Y + dy, r[1] + 2, Material.IRON_BARS);
+                arch.set(x, Y + dy, r[3] - 2, Material.IRON_BARS);
+            }
+            arch.set(x, Y + 4, r[1] + 2, Material.LANTERN);
+            arch.set(x, Y + 4, r[3] - 2, Material.LANTERN);
+        }
+        // Server name across the yard's east wall, above the exit, read facing east.
+        int nameW = BlockFont.width("SKY PRISON");
+        BlockFont.write(world, "SKY PRISON", r[2] - 1, Y + 16, -nameW / 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
+        // Backing panel so the letters read against the sky.
+        for (int z = -nameW / 2 - 1; z <= nameW / 2 + 1; z++) {
+            for (int dy = 9; dy <= 17; dy++) arch.set(r[2], Y + dy, z, arch.pick(Architect.PRISON_STONE));
         }
         buildPrisonBus(r[0] + 4, Y + 1, -3);
         sign(r[0] + 12, Y + 2, -1, BlockFace.EAST, "§8§lINTAKE", "Welcome to", "Sky Prison.", "Head east →");
@@ -214,10 +225,8 @@ public class WorldBuilder {
 
     private void buildIntakeCorridor() {
         int[] r = CORRIDOR;
-        arch.room(r[0], r[1], r[2], r[3], Y, 6, Architect.PRISON_STONE,
-                Material.POLISHED_DEEPSLATE, Material.CHISELED_STONE_BRICKS,
-                Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE,
-                Material.STONE_BRICKS, Material.STONE_BRICK_STAIRS, Material.SEA_LANTERN);
+        arch.prisonHall(r[0], r[1], r[2], r[3], Y, 7, Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE, 9);
+        arch.ceilingStrip(r[0] + 1, r[2] - 1, Y + 8, 0, Material.SEA_LANTERN);
 
         // Tutorial signs along the north wall, facing into the corridor.
         int z = r[1] + 1;
@@ -233,65 +242,100 @@ public class WorldBuilder {
 
     // ---- Hub ----
 
+    private static final int HUB_HEIGHT = 18;
+
     private void buildHub() {
         int[] r = HUB;
-        arch.room(r[0], r[1], r[2], r[3], Y, 10, Architect.HUB_STONE,
-                Material.POLISHED_DEEPSLATE, Material.CHISELED_TUFF_BRICKS,
-                Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE,
-                Material.TUFF_BRICKS, Material.TUFF_BRICK_STAIRS, Material.SEA_LANTERN);
-        arch.windowRun(r[0], Y + 1, r[1], r[2], 6, 4, Material.IRON_BARS, Material.TUFF_BRICK_STAIRS);
-        arch.windowRun(r[0], Y + 1, r[3], r[2], 6, 4, Material.IRON_BARS, Material.TUFF_BRICK_STAIRS);
+        arch.prisonHall(r[0], r[1], r[2], r[3], Y, HUB_HEIGHT, Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE, 10);
+        arch.windowRun(r[0], Y + 1, r[1], r[2], 6, 5, Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
+        arch.windowRun(r[0], Y + 1, r[3], r[2], 6, 5, Material.IRON_BARS, Material.STONE_BRICK_STAIRS);
+
+        // A second-storey gallery ledge around the hall gives the height a reason to exist.
+        for (int x = r[0] + 1; x <= r[2] - 1; x++) {
+            arch.placeSlab(x, Y + 8, r[1] + 1, Material.STONE_BRICK_SLAB, true);
+            arch.placeSlab(x, Y + 8, r[3] - 1, Material.STONE_BRICK_SLAB, true);
+        }
+        for (int z = r[1] + 1; z <= r[3] - 1; z++) {
+            arch.placeSlab(r[0] + 1, Y + 8, z, Material.STONE_BRICK_SLAB, true);
+            arch.placeSlab(r[2] - 1, Y + 8, z, Material.STONE_BRICK_SLAB, true);
+        }
 
         // Central dais and landmark column.
         int cx = (r[0] + r[2]) / 2, cz = 0;
-        for (int dx = -4; dx <= 4; dx++) {
-            for (int dz = -4; dz <= 4; dz++) {
-                if (Math.abs(dx) + Math.abs(dz) > 5) continue;
+        for (int dx = -5; dx <= 5; dx++) {
+            for (int dz = -5; dz <= 5; dz++) {
+                if (Math.abs(dx) + Math.abs(dz) > 6) continue;
                 arch.set(cx + dx, Y, cz + dz, Material.POLISHED_BLACKSTONE);
-                if (Math.abs(dx) + Math.abs(dz) <= 3) arch.set(cx + dx, Y + 1, cz + dz, Material.POLISHED_BLACKSTONE_BRICKS);
+                if (Math.abs(dx) + Math.abs(dz) <= 4) arch.set(cx + dx, Y + 1, cz + dz, Material.POLISHED_BLACKSTONE_BRICKS);
             }
         }
-        for (int dy = 2; dy <= 6; dy++) arch.set(cx, Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
-        arch.set(cx, Y + 7, cz, Material.SEA_LANTERN);
+        for (int dy = 2; dy <= 9; dy++) arch.set(cx, Y + dy, cz, Material.CHISELED_POLISHED_BLACKSTONE);
+        arch.set(cx, Y + 10, cz, Material.SEA_LANTERN);
+        // Hanging chains from the ceiling down to the column top, as in the reference hall.
+        for (int dy = 11; dy <= HUB_HEIGHT; dy++) arch.set(cx, Y + dy, cz, Material.CHAIN);
 
-        sign(r[0] + 1, Y + 2, 6, BlockFace.EAST, "§b§lSKY PRISON", "/prison  menu", "/warps  mines", "/fishing  ponds");
-        sign(r[0] + 1, Y + 2, -6, BlockFace.EAST, "§6§lWHERE TO", "N: Cell block", "S: Crates & Yard", "E: The Wards");
+        // Red-wool PvP lane from the Yard door straight up to the dais. Inside red = PvP on.
+        int yardMid = (YARD[0] + YARD[2]) / 2;
+        for (int z = r[1] + 1; z <= -7; z++) {
+            for (int dx = -1; dx <= 1; dx++) arch.set(yardMid + dx, Y, z, Material.RED_WOOL);
+        }
+        pvpLane = new int[]{yardMid - 1, r[1] + 1, yardMid + 1, -7};
+        sign(yardMid + 3, Y + 2, -12, BlockFace.WEST, "§c§lRED WOOL", "means", "§cPVP IS ON", "");
+        sign(yardMid - 3, Y + 2, -12, BlockFace.EAST, "§7§lGRAY FLOOR", "means", "§aPVP IS OFF", "");
+
+        // Server name inside, above the east gate, read facing west from the ward walkway.
+        int nameW = BlockFont.width("SKY PRISON");
+        BlockFont.write(world, "SKY PRISON", r[2], Y + HUB_HEIGHT - 2, nameW / 2, BlockFont.Axis.NEG_Z, Material.QUARTZ_BLOCK);
+
+        // Ender chests flanking the grand gate, as prison hubs do.
+        arch.set(r[2] - 2, Y + 1, ENTRANCE_Z - 5, Material.ENDER_CHEST);
+        arch.set(r[2] - 2, Y + 1, ENTRANCE_Z + 5, Material.ENDER_CHEST);
+
+        sign(r[0] + 1, Y + 2, 8, BlockFace.EAST, "§b§lSKY PRISON", "/prison  menu", "/warps  mines", "/fishing  ponds");
+        sign(r[0] + 1, Y + 2, -8, BlockFace.EAST, "§6§lWHERE TO", "N: Cell block", "S: Crates & Yard", "E: The Wards");
     }
+
+    private int[] pvpLane;
 
     // ---- Cell block: two tiers of 7x7 cells on railed gantries ----
 
+    private static final int CELL_TIER_HEIGHT = 6;
+
     private void buildCellBlock() {
         int[] r = CELLS;
-        arch.room(r[0], r[1], r[2], r[3], Y, 14, Architect.CELL_STONE,
-                Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE,
-                Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE,
-                Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS, Material.SEA_LANTERN);
-        arch.windowRun(r[0], Y + 1, r[1], r[2], 8, 10, Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
-        arch.windowRun(r[0], Y + 1, r[3], r[2], 8, 10, Material.IRON_BARS, Material.DEEPSLATE_BRICK_STAIRS);
+        int hallHeight = CELL_TIERS * CELL_TIER_HEIGHT + 4;
+        arch.prisonHall(r[0], r[1], r[2], r[3], Y, hallHeight, Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE, 12);
+        // Long strip lights the length of the hall, like the reference.
+        for (int z = r[1] + 6; z < r[3]; z += 8) arch.ceilingStrip(r[0] + 2, r[2] - 2, Y + hallHeight + 1, z, Material.SEA_LANTERN);
 
-        int startX = r[0] + 2;
-        int rowPitch = CELL_SIZE + 4;   // cell depth + 4-wide gantry
+        int startX = r[0] + 3;
+        int rowPitch = CELL_SIZE + 4;
         int cellNumber = 1;
         for (int tier = 0; tier < CELL_TIERS; tier++) {
-            int y = Y + tier * 6;
+            int y = Y + tier * CELL_TIER_HEIGHT;
             for (int row = 0; row < CELL_ROWS; row++) {
-                int cz = r[1] + 5 + row * rowPitch;
+                int cz = r[1] + 6 + row * rowPitch;
                 for (int col = 0; col < CELLS_PER_ROW; col++) {
                     buildCell(startX + col * CELL_SIZE, y, cz, cellNumber++);
                 }
-                // Gantry in front of the row.
+                // Gantry in front of the row, with an iron-bar rail on upper tiers.
                 for (int x = startX - 1; x <= startX + CELLS_PER_ROW * CELL_SIZE; x++) {
                     for (int dz = 1; dz <= 3; dz++) arch.set(x, y, cz - dz, Material.POLISHED_DEEPSLATE);
-                    if (tier > 0) arch.set(x, y + 1, cz - 3, Material.DEEPSLATE_BRICK_WALL);
+                    if (tier > 0) arch.set(x, y + 1, cz - 3, Material.IRON_BARS);
                 }
             }
         }
-        // Stairs up to the second tier at the east end.
-        for (int i = 0; i < 6; i++) {
-            arch.placeStair(r[2] - 3, Y + i, r[1] + 3 + i, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.NORTH, false);
-            arch.set(r[2] - 2, Y + i, r[1] + 3 + i, Material.POLISHED_DEEPSLATE);
+        // Stairs linking each tier at the east end.
+        for (int tier = 0; tier < CELL_TIERS - 1; tier++) {
+            int base = Y + tier * CELL_TIER_HEIGHT;
+            for (int i = 0; i < CELL_TIER_HEIGHT; i++) {
+                arch.placeStair(r[2] - 3, base + i, r[1] + 3 + i, Material.DEEPSLATE_BRICK_STAIRS, BlockFace.NORTH, false);
+                arch.set(r[2] - 2, base + i, r[1] + 3 + i, Material.POLISHED_DEEPSLATE);
+                arch.set(r[2] - 4, base + i, r[1] + 3 + i, Material.IRON_BARS);
+            }
         }
-        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§8§lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW * CELL_TIERS) + " cells", "Two tiers", "");
+        BlockFont.write(world, "CELLS", (r[0] + r[2]) / 2 - BlockFont.width("CELLS") / 2, Y + hallHeight - 1, r[3] - 1, BlockFont.Axis.POS_X, Material.QUARTZ_BLOCK);
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§8§lCELL BLOCK", (CELL_ROWS * CELLS_PER_ROW * CELL_TIERS) + " cells", CELL_TIERS + " tiers", "");
     }
 
     private void buildCell(int x, int y, int z, int number) {
@@ -333,10 +377,8 @@ public class WorldBuilder {
 
     private void buildCrateHall() {
         int[] r = CRATES;
-        arch.room(r[0], r[1], r[2], r[3], Y, 8, Architect.CELL_STONE,
-                Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE,
-                Material.POLISHED_DIORITE, Material.POLISHED_BLACKSTONE,
-                Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS, Material.SEA_LANTERN);
+        arch.prisonHall(r[0], r[1], r[2], r[3], Y, 9, Material.POLISHED_DIORITE, Material.POLISHED_BLACKSTONE, 8);
+        BlockFont.write(world, "CRATES", (r[0] + r[2]) / 2 + BlockFont.width("CRATES") / 2, Y + 9, r[1] + 1, BlockFont.Axis.NEG_X, Material.QUARTZ_BLOCK);
         for (Map.Entry<Location, String> e : crateLocations.entrySet()) {
             Location l = e.getKey();
             CrateData.Crate crate = CrateData.CRATES.get(e.getValue());
@@ -355,6 +397,8 @@ public class WorldBuilder {
         pvpZones.clear();
         int[] r = YARD;
         pvpZones.add(new PvpZoneManager.Zone("The Yard", r[0], Y, r[1], r[2], Y + 10, r[3]));
+        int yardMid = (YARD[0] + YARD[2]) / 2;
+        pvpZones.add(new PvpZoneManager.Zone("Hub PvP Lane", yardMid - 1, Y, HUB[1] + 1, yardMid + 1, Y + 3, -7));
         for (String rank : new String[]{"F", "M", "T"}) {
             int[] p = pitRect(RankMineData.RANKS.get(rank));
             if (p != null) pvpZones.add(new PvpZoneManager.Zone(rank + "-Ward Pit", p[0], Y, p[1], p[2], Y + 8, p[3]));
@@ -421,17 +465,29 @@ public class WorldBuilder {
 
     private void buildWard(RankMineData.Def d) {
         int[] w = wardRect(d);
-        arch.room(w[0], w[1], w[2], w[3], Y, 8, Architect.WARD_INDUSTRIAL,
-                Material.POLISHED_BASALT, Material.CHISELED_DEEPSLATE,
-                Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE,
-                Material.DEEPSLATE_TILES, Material.DEEPSLATE_TILE_STAIRS, Material.SEA_LANTERN);
+        arch.prisonHall(w[0], w[1], w[2], w[3], Y, 9, Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE, 8);
+        // Iron-bar rails flanking the route through to the mine.
         for (int x = w[0] + 1; x < w[2]; x++) {
-            arch.set(x, Y + 1, ENTRANCE_Z - 3, Material.DEEPSLATE_BRICK_WALL);
-            arch.set(x, Y + 1, ENTRANCE_Z + 3, Material.DEEPSLATE_BRICK_WALL);
+            arch.set(x, Y + 1, ENTRANCE_Z - 3, Material.IRON_BARS);
+            arch.set(x, Y + 1, ENTRANCE_Z + 3, Material.IRON_BARS);
         }
-        int bx = w[0] + 3, bz = w[1] + 2;
-        for (int dy = 1; dy <= 5; dy++) arch.set(bx, Y + dy, bz, Material.POLISHED_BASALT);
-        arch.set(bx, Y + 6, bz, Material.SEA_LANTERN);
+        // Ender chests either side of the mine approach.
+        arch.set(w[2] - 2, Y + 1, ENTRANCE_Z - 5, Material.ENDER_CHEST);
+        arch.set(w[2] - 2, Y + 1, ENTRANCE_Z + 5, Material.ENDER_CHEST);
+
+        // The mine gate: an archway on the mine's face with the rank letter in quartz above it,
+        // cobweb wire along the top — the single most recognisable prison-server image.
+        int gx = d.x1;
+        for (int dz = -4; dz <= 4; dz++) {
+            for (int dy = 1; dy <= 6; dy++) {
+                boolean frame = Math.abs(dz) == 4 || dy == 6;
+                arch.set(gx, Y + dy, ENTRANCE_Z + dz, frame ? Material.CHISELED_STONE_BRICKS : Material.IRON_BARS);
+            }
+        }
+        for (int dz = -5; dz <= 5; dz++) arch.set(gx, Y + 7, ENTRANCE_Z + dz, (dz % 3 == 0) ? Material.IRON_BARS : Material.COBWEB);
+        BlockFont.write(world, d.rank, gx, Y + 15, ENTRANCE_Z - 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
+        BlockFont.write(world, "MINE", gx, Y + 26, ENTRANCE_Z - BlockFont.width("MINE") / 2, BlockFont.Axis.POS_Z, Material.QUARTZ_BLOCK);
+
         sign(w[0] + 1, Y + 2, w[1] + 4, BlockFace.EAST, "§6§l" + d.rank + "-WARD", "Mine " + d.rank,
                 "Rare: " + prettyName(d.rare), String.format("%.0f%% rare", rarePercentFor(d.rank)));
     }
@@ -446,7 +502,7 @@ public class WorldBuilder {
         for (int i = 0; i < ordered.size(); i++) {
             RankMineData.Def d = ordered.get(i);
             int[] w = wardRect(d);
-            walkway(w[2] + 1, d.x1 - 1, ENTRANCE_Z, 1);                  // ward → its mine
+            walkway(w[2] + 1, d.x1 - 1, ENTRANCE_Z, 2);                  // ward → its mine
             if (i + 1 < ordered.size()) {
                 walkway(d.x2 + 1, wardRect(ordered.get(i + 1))[0] - 1, ENTRANCE_Z, 2); // mine → next ward
             }
@@ -462,17 +518,22 @@ public class WorldBuilder {
         }
     }
 
+    /** Road-style walkway: dark surface with quartz lane markings, iron-bar fencing, lamp posts. */
     private void walkway(int x1, int x2, int centreZ, int halfWidth) {
         if (x2 < x1) return;
         for (int x = x1; x <= x2; x++) {
             for (int dz = -halfWidth; dz <= halfWidth; dz++) {
                 boolean edge = Math.abs(dz) == halfWidth;
-                arch.set(x, Y, centreZ + dz, edge ? Material.POLISHED_BLACKSTONE : Material.SMOOTH_STONE);
-                if (edge) arch.set(x, Y + 1, centreZ + dz, Material.POLISHED_BLACKSTONE_WALL);
+                boolean marking = dz == 0 && (x % 6) < 3;
+                arch.set(x, Y, centreZ + dz, edge ? Material.STONE_BRICKS : marking ? Material.QUARTZ_SLAB : Material.BLACK_CONCRETE);
+                if (marking) arch.set(x, Y, centreZ + dz, Material.BLACK_CONCRETE);
+                if (edge) arch.set(x, Y + 1, centreZ + dz, Material.IRON_BARS);
             }
-            if ((x - x1) % 8 == 4) {
-                arch.set(x, Y + 2, centreZ - halfWidth, Material.LANTERN);
-                arch.set(x, Y + 2, centreZ + halfWidth, Material.LANTERN);
+            if (halfWidth > 1 && (x - x1) % 8 == 4) {
+                for (int dy = 1; dy <= 3; dy++) arch.set(x, Y + dy, centreZ - halfWidth, Material.IRON_BARS);
+                arch.set(x, Y + 4, centreZ - halfWidth, Material.LANTERN);
+                for (int dy = 1; dy <= 3; dy++) arch.set(x, Y + dy, centreZ + halfWidth, Material.IRON_BARS);
+                arch.set(x, Y + 4, centreZ + halfWidth, Material.LANTERN);
             }
         }
     }

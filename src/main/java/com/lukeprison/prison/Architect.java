@@ -249,6 +249,93 @@ public class Architect {
     }
 
     /**
+     * A prison wall in the TitanMC idiom: stone brick panels with texture noise, a nether brick
+     * band at eye level (rows 2–3), chiseled trim at base and cornice, pillars on a rhythm.
+     */
+    public void prisonWall(int x1, int y, int z1, int x2, int z2, int height, int pillarSpacing) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                boolean onEdge = x == minX || x == maxX || z == minZ || z == maxZ;
+                if (!onEdge) continue;
+                boolean corner = (x == minX || x == maxX) && (z == minZ || z == maxZ);
+                boolean rhythm = ((x - minX) % pillarSpacing == 0 && (z == minZ || z == maxZ))
+                        || ((z - minZ) % pillarSpacing == 0 && (x == minX || x == maxX));
+                boolean isPillar = corner || rhythm;
+                for (int dy = 0; dy < height; dy++) {
+                    Material mat;
+                    if (isPillar) {
+                        mat = dy == 0 || dy == height - 1 ? Material.CHISELED_STONE_BRICKS : Material.STONE_BRICKS;
+                    } else if (dy == 0 || dy == height - 1) {
+                        mat = Material.CHISELED_STONE_BRICKS;
+                    } else if (dy == 2 || dy == 3) {
+                        mat = random.nextInt(100) < 12 ? Material.RED_NETHER_BRICKS : Material.NETHER_BRICKS;
+                    } else {
+                        mat = pick(PRISON_STONE);
+                    }
+                    set(x, y + dy, z, mat);
+                }
+            }
+        }
+    }
+
+    /** Cobweb "barbed wire" with iron-bar posts along a wall top — the classic prison silhouette. */
+    public void barbedWireTop(int x1, int z1, int x2, int z2, int y) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                boolean onEdge = x == minX || x == maxX || z == minZ || z == maxZ;
+                if (!onEdge) continue;
+                boolean post = (x + z) % 3 == 0;
+                set(x, y, z, post ? Material.IRON_BARS : Material.COBWEB);
+                if (post) set(x, y + 1, z, Material.COBWEB);
+            }
+        }
+    }
+
+    /**
+     * Recessed ceiling light panels: a 3x3 of sea lantern set one block up into the ceiling,
+     * framed by chiseled stone. Reads as institutional strip lighting rather than hung lamps.
+     */
+    public void recessedLightPanels(int x1, int z1, int x2, int z2, int ceilingY, int spacing) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        for (int cx = minX + spacing / 2; cx < maxX - 2; cx += spacing) {
+            for (int cz = minZ + spacing / 2; cz < maxZ - 2; cz += spacing) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    for (int dz = -2; dz <= 2; dz++) {
+                        boolean frame = Math.abs(dx) == 2 || Math.abs(dz) == 2;
+                        set(cx + dx, ceilingY, cz + dz, frame ? Material.CHISELED_STONE_BRICKS : Material.AIR);
+                        if (!frame) set(cx + dx, ceilingY + 1, cz + dz, Material.SEA_LANTERN);
+                    }
+                }
+            }
+        }
+    }
+
+    /** A long strip light down a ceiling, for corridors and halls. */
+    public void ceilingStrip(int x1, int x2, int y, int z, Material light) {
+        for (int x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) set(x, y, z, light);
+    }
+
+    /**
+     * A prison hall: prison-wall shell with eye-level band, solid roof, recessed light panels,
+     * a floor with a trim band. The room primitive for everything inside the prison.
+     */
+    public void prisonHall(int x1, int z1, int x2, int z2, int y, int height,
+                           Material floorMat, Material floorBand, int panelSpacing) {
+        fillFlat(x1, z1, x2, z2, y, new Palette(floorMat, new Material[]{floorMat}, new int[]{0}));
+        floorBand(x1, z1, x2, z2, y, floorBand);
+        clear(x1 + 1, y + 1, z1 + 1, x2 - 1, y + height, z2 - 1);
+        prisonWall(x1, y + 1, z1, x2, z2, height, 6);
+        fillFlat(x1, z1, x2, z2, y + height + 1, PRISON_STONE);
+        fillFlat(x1, z1, x2, z2, y + height + 2, PRISON_STONE);
+        recessedLightPanels(x1 + 1, z1 + 1, x2 - 1, z2 - 1, y + height + 1, panelSpacing);
+    }
+
+    /**
      * Builds a complete detailed room in one call: floor with a trim band, depth-detailed walls,
      * an overhanging roof and integrated lighting.
      */

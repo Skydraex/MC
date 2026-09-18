@@ -254,7 +254,6 @@ public class WorldBuilder {
     private void buildIntakeCorridor() {
         int[] r = CORRIDOR;
         arch.prisonHall(r[0], r[1], r[2], r[3], Y, 7, Material.POLISHED_ANDESITE, Material.POLISHED_BLACKSTONE, 9);
-        arch.ceilingStrip(r[0] + 1, r[2] - 1, Y + 8, 0, Material.SEA_LANTERN);
 
         // Tutorial signs along the north wall, facing into the corridor.
         int z = r[1] + 1;

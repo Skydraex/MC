@@ -25,6 +25,15 @@ commands:
   autosell:
     description: Toggle selling blocks instantly as you mine
     aliases: [as]
+  fishing:
+    description: Open the fishing pond menu
+    aliases: [fish, ponds]
+  sellfish:
+    description: Sell all fish in your inventory
+    aliases: [sf]
+  spawn:
+    description: Return to the prison hub
+    aliases: [hub]
 permissions:
   prison.admin:
     default: op

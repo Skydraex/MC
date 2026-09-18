@@ -8,15 +8,15 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 
-/** Gives every new player a starter pickaxe + torches on first join, and drops them in the hub. */
+/** Puts brand-new players at the prison bus in the starter yard and points them down the intake corridor. */
 public class KitListener implements Listener {
 
     private final PrisonPlugin plugin;
-    private final Location hubSpawn;
+    private final Location starterSpawn;
 
-    public KitListener(PrisonPlugin plugin, Location hubSpawn) {
+    public KitListener(PrisonPlugin plugin, Location starterSpawn) {
         this.plugin = plugin;
-        this.hubSpawn = hubSpawn;
+        this.starterSpawn = starterSpawn;
     }
 
     @EventHandler
@@ -24,15 +24,15 @@ public class KitListener implements Listener {
         Player p = e.getPlayer();
         if (plugin.ranks().hasReceivedKit(p)) return;
 
-        ItemStack starter = new ItemStack(Material.WOODEN_PICKAXE);
-        PickaxeEnchants.refreshLore(starter);
-        p.getInventory().addItem(starter);
-        p.getInventory().addItem(new ItemStack(Material.TORCH, 16));
-        plugin.ranks().markKitGiven(p);
+        // New players arrive at the prison bus in the starter yard. The Quartermaster NPC in the
+        // intake corridor hands out the actual pickaxe, so no gear is given here \u2014 that keeps the
+        // tutorial flow intact instead of short-circuiting it.
+        if (starterSpawn != null) p.teleport(starterSpawn);
 
-        if (hubSpawn != null) p.teleport(hubSpawn);
-
-        p.sendMessage("§aWelcome to the prison. You've been given a starter pickaxe.");
-        p.sendMessage("§7Type §f/prison §7to open the main menu, or head out to Mine A to begin.");
+        p.sendMessage("");
+        p.sendMessage("\u00a78\u00a7l\u00bb \u00a76\u00a7lYOU HAVE ARRIVED AT THE PRISON");
+        p.sendMessage("\u00a77Step off the bus and follow the corridor east.");
+        p.sendMessage("\u00a77Speak to the \u00a76Warden\u00a77 and the \u00a7eQuartermaster\u00a77 on your way in.");
+        p.sendMessage("");
     }
 }

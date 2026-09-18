@@ -20,11 +20,14 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     private SellSignListener sellSignListener;
     private ScoreboardManager scoreboardManager;
     private RanksGUI ranksGUI;
+    private FishingManager fishingManager;
 
     public static PrisonPlugin get() { return instance; }
     public Economy economy() { return economy; }
     public RankManager ranks() { return rankManager; }
     public ScoreboardManager scoreboard() { return scoreboardManager; }
+    public FishingManager fishing() { return fishingManager; }
+    public WorldBuilder builder() { return worldBuilder; }
 
     @Override
     public void onEnable() {
@@ -38,30 +41,45 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
 
         rankManager = new RankManager(this);
         rankManager.load();
+        fishingManager = new FishingManager(this);
+        fishingManager.load();
 
         World world = Bukkit.getWorlds().get(0);
 
         worldBuilder = new WorldBuilder(this, world);
-        // Builds every mine (walls + ore fill), the hub platform, and all sell signs.
-        // Runs once automatically — this is the "build everything by code" step.
-        worldBuilder.buildAll();
+        // Bounds are registered every boot (cheap, no block placement). The full build runs
+        // only on first boot — a marker file skips it afterwards, so restarts are fast.
+        worldBuilder.registerBounds();
+        if (worldBuilder.alreadyBuilt()) {
+            getLogger().info("World already built \u2014 skipping construction.");
+        } else {
+            worldBuilder.buildAll();
+        }
 
         sellSignListener = new SellSignListener(this, worldBuilder.getSellSigns());
         getServer().getPluginManager().registerEvents(sellSignListener, this);
         getServer().getPluginManager().registerEvents(new MineProtectionListener(this, worldBuilder.getMineBounds()), this);
-        getServer().getPluginManager().registerEvents(new KitListener(this, worldBuilder.getHubSpawn()), this);
+        getServer().getPluginManager().registerEvents(new KitListener(this, worldBuilder.getStarterSpawn()), this);
 
         scoreboardManager = new ScoreboardManager(this);
         ranksGUI = new RanksGUI(this);
         EnchantGUI enchantGUI = new EnchantGUI(this);
         MenuGUI menuGUI = new MenuGUI(this, ranksGUI, enchantGUI, worldBuilder.getMineBounds());
         MiningListener miningListener = new MiningListener(this, worldBuilder.getMineBounds());
+        FishingCommands fishingCommands = new FishingCommands(this);
+        QuestNpcManager npcManager = new QuestNpcManager(this, worldBuilder);
 
         getServer().getPluginManager().registerEvents(ranksGUI, this);
         getServer().getPluginManager().registerEvents(enchantGUI, this);
         getServer().getPluginManager().registerEvents(menuGUI, this);
         getServer().getPluginManager().registerEvents(miningListener, this);
+        getServer().getPluginManager().registerEvents(fishingCommands, this);
+        getServer().getPluginManager().registerEvents(new FishingListener(this), this);
+        getServer().getPluginManager().registerEvents(npcManager, this);
         getServer().getPluginManager().registerEvents(this, this);
+
+        // Spawn quest NPCs a tick later so the world is fully ready.
+        Bukkit.getScheduler().runTaskLater(this, npcManager::spawnNpcs, 40L);
 
         getCommand("rankup").setExecutor(new RankUpCommand(this, ranksGUI));
         getCommand("rank").setExecutor(new RankInfoCommand(this));
@@ -71,6 +89,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getCommand("enchant").setExecutor(new SimpleCommands.Enchant(enchantGUI));
         getCommand("tokens").setExecutor(new SimpleCommands.Tokens(this));
         getCommand("autosell").setExecutor(new SimpleCommands.AutoSell(this));
+        getCommand("fishing").setExecutor(new FishingCommands.Fishing(fishingCommands));
+        getCommand("sellfish").setExecutor(new FishingCommands.SellFish(this));
+        getCommand("spawn").setExecutor(new FishingCommands.Spawn(this));
 
         resetTask = new MineResetTask(this, worldBuilder);
         resetTask.runTaskTimer(this, 20L * 60, 20L * 60 * 5); // check every 5 min, first check after 1 min
@@ -95,6 +116,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         if (rankManager != null) rankManager.save();
+        if (fishingManager != null) fishingManager.save();
     }
 
     private boolean setupEconomy() {

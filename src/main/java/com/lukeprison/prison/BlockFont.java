@@ -57,6 +57,11 @@ public class BlockFont {
      * standing on the "outside" face:
      *   POS_X — read facing north;  NEG_X — read facing south;
      *   POS_Z — read facing east;   NEG_Z — read facing west.
+     *
+     * For the NEG_X/NEG_Z axes both the letter-advance step and the in-glyph column both
+     * subtract from the world coordinate, which compounds into a full mirror image (right
+     * letter order, but each glyph — and the string as a whole — flipped, exactly like text
+     * seen in a mirror). The column is reflected here to cancel that out.
      */
     public static void write(World world, String text, int x, int y, int z, Axis axis, Material mat) {
         int cursor = 0;
@@ -66,12 +71,13 @@ public class BlockFont {
                 for (int col = 0; col < GLYPH_W; col++) {
                     if (glyph[row].charAt(col) != '#') continue;
                     int along = cursor + col;
+                    int alongMirrored = cursor + (GLYPH_W - 1 - col);
                     int by = y - row;
                     switch (axis) {
                         case POS_X -> world.getBlockAt(x + along, by, z).setType(mat, false);
-                        case NEG_X -> world.getBlockAt(x - along, by, z).setType(mat, false);
+                        case NEG_X -> world.getBlockAt(x - alongMirrored, by, z).setType(mat, false);
                         case POS_Z -> world.getBlockAt(x, by, z + along).setType(mat, false);
-                        case NEG_Z -> world.getBlockAt(x, by, z - along).setType(mat, false);
+                        case NEG_Z -> world.getBlockAt(x, by, z - alongMirrored).setType(mat, false);
                     }
                 }
             }

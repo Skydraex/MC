@@ -80,7 +80,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // Bounds are registered every boot (cheap, no block placement). The full build runs
         // only on first boot — a marker file skips it afterwards, so restarts are fast.
         worldBuilder.registerBounds();
-        if (worldBuilder.alreadyBuilt()) {
+        boolean firstBoot = !worldBuilder.alreadyBuilt();
+        if (!firstBoot) {
             getLogger().info("World already built \u2014 skipping construction.");
         } else {
             worldBuilder.buildAll();
@@ -130,6 +131,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // A moment after the world is ready: sync sign text to clients, then spawn NPCs.
         Bukkit.getScheduler().runTaskLater(this, () -> {
             worldBuilder.applySigns();
+            if (firstBoot) worldBuilder.spawnHolograms();
             npcManager.spawnNpcs();
         }, 40L);
 

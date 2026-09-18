@@ -8,7 +8,12 @@ import org.bukkit.entity.Player;
 public class RankUpCommand implements CommandExecutor {
 
     private final PrisonPlugin plugin;
-    public RankUpCommand(PrisonPlugin plugin) { this.plugin = plugin; }
+    private final RanksGUI gui;
+
+    public RankUpCommand(PrisonPlugin plugin, RanksGUI gui) {
+        this.plugin = plugin;
+        this.gui = gui;
+    }
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
@@ -16,19 +21,7 @@ public class RankUpCommand implements CommandExecutor {
             sender.sendMessage("Players only.");
             return true;
         }
-        String current = plugin.ranks().getRank(p);
-        RankMineData.Def def = RankMineData.RANKS.get(current);
-        if (def.next.equals(current)) {
-            p.sendMessage("§eYou're at Free — use /prestige to go again.");
-            return true;
-        }
-        RankMineData.Def next = RankMineData.RANKS.get(def.next);
-        boolean ok = plugin.ranks().rankUp(p);
-        if (ok) {
-            p.sendMessage("§aRanked up to §f" + next.rank + "§a! Mine " + next.rank + " is now unlocked.");
-        } else {
-            p.sendMessage("§cYou need $" + String.format("%.2f", (double) next.cost) + " to rank up to " + next.rank + ".");
-        }
+        gui.open(p);
         return true;
     }
 }

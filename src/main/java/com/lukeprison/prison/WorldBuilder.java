@@ -433,6 +433,85 @@ public class WorldBuilder {
                 "§7Cell", "§f#" + number, "", "");
     }
 
+    private void registerCrateLocations() {
+        crateLocations.clear();
+        int[] r = CRATES;
+        int spacing = (r[2] - r[0]) / (CrateData.CRATES.size() + 1);
+        int i = 0;
+        for (CrateData.Crate crate : CrateData.CRATES.values()) {
+            i++;
+            crateLocations.put(new Location(world, r[0] + spacing * i, Y + 2, (r[1] + r[3]) / 2), crate.id);
+        }
+    }
+
+    private void buildCrateHall() {
+        int[] r = CRATES;
+        arch.prisonHall(r[0], r[1], r[2], r[3], Y, 9, Material.POLISHED_DIORITE, Material.POLISHED_BLACKSTONE, 8);
+        BlockFont.write(world, "CRATES", (r[0] + r[2]) / 2 + BlockFont.width("CRATES") / 2, Y + 9, r[1] + 1, BlockFont.Axis.NEG_X, Material.LIGHT_BLUE_CONCRETE);
+        for (Map.Entry<Location, String> e : crateLocations.entrySet()) {
+            Location l = e.getKey();
+            CrateData.Crate crate = CrateData.CRATES.get(e.getValue());
+            arch.set(l.getBlockX(), Y + 1, l.getBlockZ(), Material.CHISELED_DEEPSLATE);
+            arch.set(l.getBlockX(), Y + 2, l.getBlockZ(), Material.ENDER_CHEST);
+            arch.placeSlab(l.getBlockX() - 1, Y + 1, l.getBlockZ(), Material.POLISHED_DEEPSLATE_SLAB, false);
+            arch.placeSlab(l.getBlockX() + 1, Y + 1, l.getBlockZ(), Material.POLISHED_DEEPSLATE_SLAB, false);
+            sign(l.getBlockX(), Y + 3, l.getBlockZ() + 1, BlockFace.SOUTH, "§6§l" + crate.display, "Right-click", "with a key", "to open");
+        }
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§6§lCRATES", "Keys drop from", "mining and", "fishing.");
+    }
+
+    // ---- PvP: The Yard (off the hub) and ward pits ----
+
+    private void registerPvpZones() {
+        pvpZones.clear();
+        int[] r = YARD;
+        pvpZones.add(new PvpZoneManager.Zone("The Yard", r[0], Y, r[1], r[2], Y + 10, r[3]));
+        int yardMid = (YARD[0] + YARD[2]) / 2;
+        pvpZones.add(new PvpZoneManager.Zone("Hub PvP Lane", yardMid - 1, Y, HUB[1] + 1, yardMid + 1, Y + 3, -7));
+        for (String rank : new String[]{"F", "M", "T"}) {
+            int[] p = pitRect(RankMineData.RANKS.get(rank));
+            if (p != null) pvpZones.add(new PvpZoneManager.Zone(rank + "-Ward Pit", p[0], Y, p[1], p[2], Y + 8, p[3]));
+        }
+    }
+
+    private int[] wardRect(RankMineData.Def d) { return new int[]{d.x1 - 24, -8, d.x1 - 4, 14}; }
+    private int[] pitRect(RankMineData.Def d) {
+        if (d == null) return null;
+        int[] w = wardRect(d);
+        return new int[]{w[0], -36, w[2], -16};
+    }
+
+    private void buildYard() {
+        buildArena(YARD, "The Yard", true);
+    }
+
+    private void buildWardPits() {
+        for (String rank : new String[]{"F", "M", "T"}) {
+            int[] p = pitRect(RankMineData.RANKS.get(rank));
+            if (p != null) buildArena(p, rank + "-Ward Pit", false);
+        }
+    }
+
+    private void buildArena(int[] r, String name, boolean grand) {
+        arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(Material.RED_WOOL, Material.RED_CONCRETE, 15));
+        // Bordered floor ring and low walls, open-topped so fights are visible.
+        for (int x = r[0]; x <= r[2]; x++) { arch.set(x, Y, r[1], Material.RED_CONCRETE); arch.set(x, Y, r[3], Material.RED_CONCRETE); }
+        for (int z = r[1]; z <= r[3]; z++) { arch.set(r[0], Y, z, Material.RED_CONCRETE); arch.set(r[2], Y, z, Material.RED_CONCRETE); }
+        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.Palette.of(Material.RED_CONCRETE, Material.RED_TERRACOTTA, 20),
+                Material.DEEPSLATE_BRICKS, Material.POLISHED_BLACKSTONE, 6);
+        for (int[] c : new int[][]{{r[0], r[1]}, {r[0], r[3]}, {r[2], r[1]}, {r[2], r[3]}}) {
+            for (int dy = 5; dy <= 7; dy++) arch.set(c[0], Y + dy, c[1], Material.DEEPSLATE_BRICKS);
+            arch.set(c[0], Y + 8, c[1], Material.REDSTONE_LAMP);
+        }
+        if (grand) {
+            int mx = (r[0] + r[2]) / 2, mz = (r[1] + r[3]) / 2;
+            for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+                if (Math.abs(dx) == 2 || Math.abs(dz) == 2) arch.set(mx + dx, Y + 1, mz + dz, Material.DEEPSLATE_BRICK_WALL);
+            }
+        }
+        sign(r[0] + 1, Y + 2, r[1] + 2, BlockFace.EAST, "§c§lPVP ZONE", name, "Drop all items", "on death!");
+    }
+
     // ---- Mines and wards ----
 
     private double rarePercentFor(String rank) {

@@ -42,6 +42,7 @@ public class PrisonPlugin extends JavaPlugin {
         sellSignListener = new SellSignListener(this, worldBuilder.getSellSigns());
         getServer().getPluginManager().registerEvents(sellSignListener, this);
         getServer().getPluginManager().registerEvents(new MineProtectionListener(this, worldBuilder.getMineBounds()), this);
+        getServer().getPluginManager().registerEvents(new KitListener(this, worldBuilder.getHubSpawn()), this);
 
         getCommand("rankup").setExecutor(new RankUpCommand(this));
         getCommand("rank").setExecutor(new RankInfoCommand(this));

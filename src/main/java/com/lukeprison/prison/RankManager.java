@@ -15,6 +15,7 @@ public class RankManager {
     private final Plugin plugin;
     private final Map<UUID, String> ranks = new HashMap<>();
     private final Map<UUID, Integer> prestige = new HashMap<>();
+    private final java.util.Set<UUID> kitGiven = new java.util.HashSet<>();
     private File file;
     private YamlConfiguration yaml;
 
@@ -31,6 +32,7 @@ public class RankManager {
             UUID id = UUID.fromString(key);
             ranks.put(id, yaml.getString(key + ".rank", "A"));
             prestige.put(id, yaml.getInt(key + ".prestige", 0));
+            if (yaml.getBoolean(key + ".kit", false)) kitGiven.add(id);
         }
     }
 
@@ -39,9 +41,13 @@ public class RankManager {
         for (Map.Entry<UUID, String> e : ranks.entrySet()) {
             yaml.set(e.getKey() + ".rank", e.getValue());
             yaml.set(e.getKey() + ".prestige", prestige.getOrDefault(e.getKey(), 0));
+            yaml.set(e.getKey() + ".kit", kitGiven.contains(e.getKey()));
         }
         try { yaml.save(file); } catch (IOException e) { e.printStackTrace(); }
     }
+
+    public boolean hasReceivedKit(Player p) { return kitGiven.contains(p.getUniqueId()); }
+    public void markKitGiven(Player p) { kitGiven.add(p.getUniqueId()); }
 
     public String getRank(Player p) { return ranks.getOrDefault(p.getUniqueId(), "A"); }
     public int getPrestige(Player p) { return prestige.getOrDefault(p.getUniqueId(), 0); }

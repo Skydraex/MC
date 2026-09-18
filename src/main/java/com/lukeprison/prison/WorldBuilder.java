@@ -22,6 +22,7 @@ public class WorldBuilder {
     private final World world;
     private final Map<String, int[]> mineBounds = new LinkedHashMap<>(); // rank -> [x1,y1,z1,x2,y2,z2]
     private final Map<Location, SellSignListener.SellSignData> sellSigns = new HashMap<>();
+    private Location hubSpawn;
 
     public WorldBuilder(Plugin plugin, World world) {
         this.plugin = plugin;
@@ -30,6 +31,7 @@ public class WorldBuilder {
 
     public Map<String, int[]> getMineBounds() { return mineBounds; }
     public Map<Location, SellSignListener.SellSignData> getSellSigns() { return sellSigns; }
+    public Location getHubSpawn() { return hubSpawn; }
 
     public void buildAll() {
         buildHub();
@@ -37,20 +39,38 @@ public class WorldBuilder {
             if (def.rank.equals("FREE")) continue;
             buildMine(def);
         }
+        setupWorldBorder();
         plugin.getLogger().info("World build complete.");
     }
 
     private void buildHub() {
-        // Simple flat spawn platform at origin, well clear of the mine row (mines start at x=0 going +x,
-        // so the hub sits at negative X).
+        // Enclosed room, not just an open platform: floor, 4 walls, ceiling, one opening toward the mines,
+        // plus ceiling lighting so nothing spawns on it at night.
         int hx1 = -40, hx2 = -5, hz1 = -20, hz2 = 20, hy = 94;
+        int wallTop = hy + 6;
         for (int x = hx1; x <= hx2; x++) {
             for (int z = hz1; z <= hz2; z++) {
                 world.getBlockAt(x, hy, z).setType(Material.SMOOTH_STONE);
-                world.getBlockAt(x, hy + 1, z).setType(Material.AIR);
-                world.getBlockAt(x, hy + 2, z).setType(Material.AIR);
+                for (int y = hy + 1; y < wallTop; y++) {
+                    boolean edge = x == hx1 || x == hx2 || z == hz1 || z == hz2;
+                    world.getBlockAt(x, y, z).setType(edge ? Material.GRAY_CONCRETE : Material.AIR);
+                }
+                world.getBlockAt(x, wallTop, z).setType(Material.GRAY_CONCRETE);
             }
         }
+        // Ceiling light strip.
+        for (int x = hx1 + 2; x <= hx2 - 2; x += 6) {
+            for (int z = hz1 + 2; z <= hz2 - 2; z += 6) {
+                world.getBlockAt(x, wallTop - 1, z).setType(Material.SEA_LANTERN);
+            }
+        }
+        // Opening toward the mines (positive X side).
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dy = 1; dy <= 3; dy++) {
+                world.getBlockAt(hx2, hy + dy, dz).setType(Material.AIR);
+            }
+        }
+        hubSpawn = new Location(world, hx1 + 5.5, hy + 1, 0.5);
         world.setSpawnLocation(hx1 + 5, hy + 1, 0);
     }
 
@@ -86,6 +106,8 @@ public class WorldBuilder {
             }
         }
 
+        placeMineLights(d);
+
         mineBounds.put(d.rank, new int[]{d.x1, d.y1, d.z1, d.x2, d.y2, d.z2});
 
         // Sell sign at the mine entrance (just outside the wall, facing in).
@@ -116,6 +138,31 @@ public class WorldBuilder {
         return rare;
     }
 
+    /** Embeds glowstone in the ceiling every 8 blocks so mines are lit and don't spawn mobs. */
+    private void placeMineLights(RankMineData.Def d) {
+        for (int x = d.x1 + 4; x < d.x2; x += 8) {
+            for (int z = d.z1 + 4; z < d.z2; z += 8) {
+                world.getBlockAt(x, d.y2 - 1, z).setType(Material.GLOWSTONE);
+            }
+        }
+    }
+
+    /** Confines the whole server to the built area so players can't wander into raw unbuilt terrain. */
+    private void setupWorldBorder() {
+        int minX = -45, maxX = -45, minZ = -25, maxZ = 25; // hub extents with a little buffer
+        for (int[] b : mineBounds.values()) {
+            minX = Math.min(minX, b[0]);
+            maxX = Math.max(maxX, b[3]);
+            minZ = Math.min(minZ, b[2]);
+            maxZ = Math.max(maxZ, b[5]);
+        }
+        double centerX = (minX + maxX) / 2.0;
+        double centerZ = (minZ + maxZ) / 2.0;
+        double size = Math.max(maxX - minX, maxZ - minZ) + 40;
+        world.getWorldBorder().setCenter(centerX, centerZ);
+        world.getWorldBorder().setSize(size);
+    }
+
     private Material safeMaterial(String name) {
         try {
             return Material.valueOf(name);
@@ -139,6 +186,7 @@ public class WorldBuilder {
                 }
             }
         }
+        placeMineLights(d);
     }
 
     /** Fraction of non-air blocks remaining inside a mine (sampled, not exhaustive, to stay cheap). */

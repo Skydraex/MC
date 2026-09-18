@@ -39,8 +39,27 @@ public class WorldBuilder {
             if (def.rank.equals("FREE")) continue;
             buildMine(def);
         }
+        connectMineWalkways();
         setupWorldBorder();
         plugin.getLogger().info("World build complete.");
+    }
+
+    /** Bridges the gap between each consecutive mine's far door and the next mine's near door. */
+    private void connectMineWalkways() {
+        List<RankMineData.Def> ordered = new ArrayList<>();
+        for (RankMineData.Def def : RankMineData.RANKS.values()) {
+            if (!def.rank.equals("FREE")) ordered.add(def);
+        }
+        for (int i = 0; i < ordered.size() - 1; i++) {
+            RankMineData.Def a = ordered.get(i);
+            RankMineData.Def b = ordered.get(i + 1);
+            int z = a.z1 + ENTRANCE_Z;
+            for (int x = a.x2 + 1; x < b.x1; x++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    world.getBlockAt(x, a.y1, z + dz).setType(Material.SMOOTH_STONE);
+                }
+            }
+        }
     }
 
     private void buildHub() {
@@ -64,15 +83,26 @@ public class WorldBuilder {
                 world.getBlockAt(x, wallTop - 1, z).setType(Material.SEA_LANTERN);
             }
         }
-        // Opening toward the mines (positive X side).
+        // Opening toward the mines (positive X side) — aligned with every mine's entrance (see buildMine).
         for (int dz = -1; dz <= 1; dz++) {
             for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(hx2, hy + dy, dz).setType(Material.AIR);
+                world.getBlockAt(hx2, hy + dy, ENTRANCE_Z + dz).setType(Material.AIR);
+            }
+        }
+        // Bridge the gap between the hub exit and Mine A's wall so there's guaranteed floor underfoot.
+        RankMineData.Def mineA = RankMineData.RANKS.get("A");
+        if (mineA != null) {
+            for (int x = hx2 + 1; x < mineA.x1; x++) {
+                for (int z = ENTRANCE_Z - 2; z <= ENTRANCE_Z + 2; z++) {
+                    world.getBlockAt(x, mineA.y1, z).setType(Material.SMOOTH_STONE);
+                }
             }
         }
         hubSpawn = new Location(world, hx1 + 5.5, hy + 1, 0.5);
         world.setSpawnLocation(hx1 + 5, hy + 1, 0);
     }
+
+    private static final int ENTRANCE_Z = 3; // shared Z-alignment for the hub exit and every mine's entrance
 
     private void buildMine(RankMineData.Def d) {
         // Skip if already built (marker block check at a fixed corner).
@@ -98,11 +128,13 @@ public class WorldBuilder {
             }
         }
 
-        // Carve a 3-wide, 3-tall entrance in the x1 wall so players can actually walk in.
-        int midZ = (d.z1 + d.z2) / 2;
+        // Carve a 3-wide, 3-tall entrance in the x1 wall, aligned with the hub's exit (ENTRANCE_Z)
+        // so every mine's door lines up on the same walkway instead of drifting with mine size.
+        int entranceZ = d.z1 + ENTRANCE_Z;
         for (int dz = -1; dz <= 1; dz++) {
             for (int dy = 1; dy <= 3; dy++) {
-                world.getBlockAt(d.x1, d.y1 + dy, midZ + dz).setType(Material.AIR);
+                world.getBlockAt(d.x1, d.y1 + dy, entranceZ + dz).setType(Material.AIR);
+                world.getBlockAt(d.x2, d.y1 + dy, entranceZ + dz).setType(Material.AIR); // matching door on the far wall, toward the next mine
             }
         }
 
@@ -110,10 +142,10 @@ public class WorldBuilder {
 
         mineBounds.put(d.rank, new int[]{d.x1, d.y1, d.z1, d.x2, d.y2, d.z2});
 
-        // Sell sign at the mine entrance (just outside the wall, facing in).
+        // Sell sign right beside the entrance (same Z alignment), facing in.
         int signX = d.x1 - 1;
         int signY = d.y1 + 1;
-        int signZ = (d.z1 + d.z2) / 2;
+        int signZ = entranceZ;
         Block signBlock = world.getBlockAt(signX, signY, signZ);
         signBlock.setType(Material.OAK_SIGN);
         if (signBlock.getState() instanceof Sign sign) {

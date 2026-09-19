@@ -187,9 +187,6 @@ public class MapAuditor {
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.hasMine()) spots.put("mine " + d.rank + " landing", builder.safeMineSpot(d.rank));
         }
-        for (Map.Entry<Location, String> pad : builder.getLiftPads().entrySet()) {
-            spots.put("lift pad -> " + pad.getValue(), pad.getKey());
-        }
 
         for (Map.Entry<String, Location> e : spots.entrySet()) {
             Location l = e.getValue();
@@ -204,6 +201,37 @@ public class MapAuditor {
             }
         }
         count("spawn points", spots.size());
+        auditLiftPads();
+    }
+
+    /**
+     * A lift pad is the block you STAND ON, not a place a player is put down, so the rules
+     * are the other way round: the pad itself must be solid, and the space above it clear.
+     *
+     * The first version of this audit checked pads as if they were spawn points and reported
+     * all 52 of them as fatal — "inside a block, you would suffocate" — which was the audit
+     * being wrong, not the world. A check that cries wolf on every pad is worse than no check,
+     * because the real findings are then buried in its noise.
+     */
+    private void auditLiftPads() {
+        int n = 0;
+        for (Map.Entry<Location, String> pad : builder.getLiftPads().entrySet()) {
+            Location l = pad.getKey();
+            int x = l.getBlockX(), y = l.getBlockY(), z = l.getBlockZ();
+            if (!world.getBlockAt(x, y, z).getType().isSolid()) {
+                fail("lift", "the pad for " + pad.getValue() + " is not solid — "
+                        + "nobody can stand on it to trigger it", x, y, z);
+            }
+            for (int dy = 1; dy <= 2; dy++) {
+                if (world.getBlockAt(x, y + dy, z).getType().isSolid()) {
+                    fail("lift", "the pad for " + pad.getValue() + " is buried — "
+                            + "there is no room to stand on it", x, y + dy, z);
+                    break;
+                }
+            }
+            n++;
+        }
+        count("lift pads", n);
     }
 
     /**

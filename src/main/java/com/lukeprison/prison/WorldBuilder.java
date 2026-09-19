@@ -722,8 +722,9 @@ public class WorldBuilder {
 
     private static final int ENCHANT_R = 7;
 
+    /** Somewhere to STAND at the enchanter — two blocks out, not on top of the table. */
     public Location enchanterLocation() {
-        return new Location(world, 0.5, Y + 1, ENCHANT_R + 0.5);
+        return new Location(world, 0.5, Y + 1, ENCHANT_R + 2.5, 180f, 0f);
     }
 
     /** /enchant only opens here. */
@@ -2295,7 +2296,10 @@ public class WorldBuilder {
                                         Math.min(z - plot[1], plot[3] - z));
                 long h = Math.floorMod(x * 41L + z * 23L, 100);
 
-                arch.set(x, RIM_Y, z, fromWall <= 1 ? mt.band() : Material.ROOTED_DIRT);
+                boolean lamp = Math.floorMod(x, 5) == 0 && Math.floorMod(z, 5) == 0;
+                arch.set(x, RIM_Y, z, lamp ? Material.SEA_LANTERN
+                        : fromWall <= 1 ? mt.band() : Material.ROOTED_DIRT);
+                if (lamp) continue;                      // nothing planted on a lamp
 
                 if (fromWall <= 1) {
                     // A kerb against the wall, lit on a rhythm.
@@ -2350,7 +2354,13 @@ public class WorldBuilder {
             for (int z = rim[1]; z <= rim[3]; z++) {
                 boolean overPit = x >= p[0] && x <= p[2] && z >= p[1] && z <= p[3];
                 if (overPit) continue;
-                arch.set(x, RIM_Y, z, ((x + z) % 7 == 0) ? mt.band() : mt.floor());
+                // Light set into the walkway itself, on a tight enough rhythm to cover it.
+                // Lamp posts at the corners were fine for the old four-block rim; the plot
+                // made these chambers several times bigger and the first audited boot found
+                // 449 dark tiles, which is both unpleasant and enough for mobs to spawn.
+                boolean lamp = Math.floorMod(x, 5) == 0 && Math.floorMod(z, 5) == 0;
+                arch.set(x, RIM_Y, z, lamp ? Material.SEA_LANTERN
+                        : ((x + z) % 7 == 0) ? mt.band() : mt.floor());
                 // Guard rail right on the lip, so nobody walks into the hole by accident.
                 boolean lip = x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1;
                 if (lip) arch.set(x, RIM_Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);
@@ -2365,10 +2375,15 @@ public class WorldBuilder {
         }
         // Pit lighting from above, on the ceiling, so the ore face is lit but nothing is
         // embedded in the ore where it would be mined away on the first pass.
-        for (int x = p[0] + 5; x <= p[2] - 5; x += 10) {
-            for (int z = p[1] + 5; z <= p[3] - 5; z += 10) {
-                arch.set(x, PIT_CEILING - 1, z, Material.SEA_LANTERN);
-                arch.set(x, PIT_CEILING - 2, z, Material.IRON_BARS);
+        // Hung on stems rather than flush to the ceiling: the cavern roof is thirty blocks
+        // above the rim now instead of fourteen, and light from that height does not reach
+        // the ore face. These drop most of the way down.
+        for (int x = p[0] + 4; x <= p[2] - 4; x += 8) {
+            for (int z = p[1] + 4; z <= p[3] - 4; z += 8) {
+                for (int dy = 1; dy <= 12; dy++) {
+                    arch.set(x, PIT_CEILING - dy, z, Material.IRON_BARS);
+                }
+                arch.set(x, PIT_CEILING - 13, z, Material.SEA_LANTERN);
             }
         }
         // A stair down into the pit on the side opposite the cage, so you can walk out of the
@@ -2573,37 +2588,87 @@ public class WorldBuilder {
     }
 
     /**
-     * Places wall signs, but ONLY where a solid block backs them.
+     * Places every sign, one way or another.
      *
-     * An unsupported wall sign survives placement (the build runs with physics off) and is then
-     * culled the moment the chunk reloads and the server revalidates it. That is why the old map
-     * filled up with floating text and no signs: the sign vanished, and the hologram that the
-     * old code spawned alongside EVERY sign stayed behind. Holograms are now opt-in, for the
-     * handful of labels that genuinely cannot sit on a wall.
+     * An unsupported wall sign survives placement (the build runs with physics off) and is
+     * then culled the moment the chunk reloads and the server revalidates it. The previous
+     * version of this method knew that and SKIPPED such signs — which was correct about the
+     * cause and wrong about the remedy: on the first audited boot it placed 18 signs and
+     * skipped 191, so the prison was almost entirely unlabelled and nothing said so.
+     *
+     * Skipping is not a fix, it is the same failure with better manners. Three attempts now:
+     *
+     *   1. the facing the caller asked for, if something solid backs it
+     *   2. any other facing that IS backed — the label still reads, just from another side
+     *   3. a free-standing sign on a post, which needs only a block beneath it
+     *
+     * Only a sign with no backing on any side AND something non-air already under it is
+     * skipped, and the count of each outcome is logged so this cannot quietly regress.
      */
+    private boolean backed(Block b, BlockFace facing) {
+        return b.getRelative(facing.getOppositeFace()).getType().isOccluding();
+    }
+
     public void applySigns() {
-        int placed = 0, skipped = 0;
+        int onWall = 0, turned = 0, onPost = 0, skipped = 0;
+
         for (PendingSign ps : signs) {
             Block b = world.getBlockAt(ps.x, ps.y, ps.z);
-            Block support = b.getRelative(ps.facing.getOppositeFace());
-            if (!support.getType().isOccluding()) { skipped++; continue; }
-            b.setType(Material.OAK_WALL_SIGN, false);
-            if (b.getBlockData() instanceof WallSign ws) {
-                ws.setFacing(ps.facing);
-                b.setBlockData(ws, false);
-            }
-            if (b.getState() instanceof Sign s) {
-                for (int i = 0; i < 4 && i < ps.lines.length; i++) {
-                    s.getSide(Side.FRONT).setLine(i, ps.lines[i] == null ? "" : ps.lines[i]);
+
+            BlockFace use = backed(b, ps.facing) ? ps.facing : null;
+            if (use == null) {
+                for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH,
+                        BlockFace.EAST, BlockFace.WEST}) {
+                    if (f != ps.facing && backed(b, f)) {
+                        use = f;
+                        turned++;
+                        break;
+                    }
                 }
-                s.setWaxed(true);
-                s.update(true, false);
-                placed++;
             }
+
+            if (use != null) {
+                b.setType(Material.OAK_WALL_SIGN, false);
+                if (b.getBlockData() instanceof WallSign ws) {
+                    ws.setFacing(use);
+                    b.setBlockData(ws, false);
+                }
+                if (writeSign(b, ps.lines)) {
+                    if (use == ps.facing) onWall++;
+                    continue;
+                }
+            }
+
+            // Nothing to hang it on. Stand it on a post instead.
+            Block below = b.getRelative(BlockFace.DOWN);
+            if (!below.getType().isSolid()) {
+                if (!below.getType().isAir()) { skipped++; continue; }
+                below.setType(Material.OAK_FENCE, false);
+            }
+            b.setType(Material.OAK_SIGN, false);
+            if (b.getBlockData() instanceof org.bukkit.block.data.type.Sign sd) {
+                sd.setRotation(ps.facing);
+                b.setBlockData(sd, false);
+            }
+            if (writeSign(b, ps.lines)) onPost++;
+            else skipped++;
         }
-        plugin.getLogger().info("Signs placed: " + placed
-                + (skipped > 0 ? " (" + skipped + " skipped — no solid backing block)" : ""));
+
+        plugin.getLogger().info("Signs: " + onWall + " on the wall as asked, " + turned
+                + " turned to a backed face, " + onPost + " on posts, " + skipped + " impossible.");
     }
+
+    /** Writes the four lines, waxes it so nobody edits it. */
+    private boolean writeSign(Block b, String[] lines) {
+        if (!(b.getState() instanceof Sign sign)) return false;
+        for (int i = 0; i < 4 && i < lines.length; i++) {
+            sign.getSide(Side.FRONT).setLine(i, lines[i] == null ? "" : lines[i]);
+        }
+        sign.setWaxed(true);
+        sign.update(true, false);
+        return true;
+    }
+
 
     public void spawnHolograms() {
         for (PendingHologram h : holograms) {

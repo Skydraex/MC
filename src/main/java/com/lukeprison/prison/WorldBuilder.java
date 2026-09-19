@@ -168,6 +168,7 @@ public class WorldBuilder {
         buildStarterYard();
         buildGrounds();
         buildPerimeter();
+        buildApproach();
 
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.hasMine()) buildMinePit(d);
@@ -390,6 +391,76 @@ public class WorldBuilder {
      * along the top you can actually stand on, crenellations, and piers on a rhythm. The
      * barrier course sits above the merlons so the countryside is still in view.
      */
+    /**
+     * The approach: a gatehouse in the west wall and a causeway running out across the moat.
+     *
+     * It is the front of the prison, and it exists to be looked at from inside. The gate is
+     * shut — the causeway is on the far side of the boundary, so it is the view out, not a
+     * way out, which is exactly the point of a moat you can see across and not cross.
+     */
+    private void buildApproach() {
+        int[] c = MapLayout.COMPOUND;
+        int gz = MapLayout.INTAKE_CENTRE;          // line it up with the way players arrive
+        int gx = c[0];
+
+        // --- Gatehouse: two towers flanking a barred gate, taller than the curtain wall ---
+        for (int side : new int[]{-1, 1}) {
+            int tz = gz + side * 6;
+            for (int dx = 0; dx < PERIMETER_THICK + 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    for (int dy = 0; dy <= 16; dy++) {
+                        boolean shell = Math.abs(dz) == 2 || dx == 0 || dx == PERIMETER_THICK + 1;
+                        Material mat = (dy >= 15)
+                                ? (Math.floorMod(dx + dz, 2) == 0 ? Material.DEEPSLATE_BRICKS : Material.AIR)
+                                : shell ? arch.pick(Architect.PRISON_STONE) : Material.AIR;
+                        arch.set(gx + dx, Y + dy, tz + dz, mat);
+                    }
+                    arch.set(gx + dx, Y + 14, tz + dz, Material.DEEPSLATE_TILES);
+                }
+            }
+            arch.set(gx + 2, Y + 13, tz, Material.LANTERN);
+        }
+
+        // --- The gate itself: an arch, barred, between the towers ---
+        for (int dx = 0; dx < PERIMETER_THICK + 2; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                for (int dy = 1; dy <= 9; dy++) {
+                    boolean arched = dy >= 7 && Math.abs(dz) >= 7 - dy + 1;
+                    arch.set(gx + dx, Y + dy, gz + dz,
+                            (dy >= 7 && !arched) ? Material.IRON_BARS
+                                    : arched ? Material.DEEPSLATE_BRICKS : Material.AIR);
+                }
+                arch.set(gx + dx, Y, gz + dz, Material.POLISHED_ANDESITE);
+                arch.set(gx + dx, Y + 10, gz + dz, Material.DEEPSLATE_BRICKS);
+            }
+        }
+
+        // --- Causeway: deck on piers, out across the moat ---
+        int deckY = PrisonWorldGenerator.COMPOUND_Y;
+        for (int x = gx - 1; x >= gx - 52; x--) {
+            for (int dz = -4; dz <= 4; dz++) {
+                boolean parapet = Math.abs(dz) == 4;
+                arch.set(x, deckY, gz + dz, parapet ? Material.POLISHED_ANDESITE
+                        : (Math.floorMod(x + dz, 6) == 0 ? Material.COBBLESTONE : Material.STONE_BRICKS));
+                if (parapet) {
+                    arch.set(x, deckY + 1, gz + dz, Material.STONE_BRICK_WALL);
+                    if (Math.floorMod(x, 9) == 0) {
+                        arch.set(x, deckY + 2, gz + dz, Material.STONE_BRICKS);
+                        arch.set(x, deckY + 3, gz + dz, Material.LANTERN);
+                    }
+                }
+            }
+            // Piers every eight blocks, dropping into the water.
+            if (Math.floorMod(x, 8) == 0) {
+                for (int dz : new int[]{-3, 3}) {
+                    for (int y = deckY - 1; y >= PrisonWorldGenerator.GROUND_FLOOR; y--) {
+                        arch.set(x, y, gz + dz, Material.STONE_BRICKS);
+                    }
+                }
+            }
+        }
+    }
+
     private static final int PERIMETER_THICK = 3;
 
     /** Strips the merlons and barrier off an inner course, leaving walkable rampart. */

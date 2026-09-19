@@ -42,9 +42,27 @@ public class PrisonWorldGenerator extends ChunkGenerator {
     public static final int COMPOUND_Y = 94;
 
     /** Half-width of the flattened area, comfortably around everything the builder places. */
-    private static final int COMPOUND_HALF = 260;
+    private static final int COMPOUND_HALF = 238;
 
-    /** Distance over which flat compound blends into open hills. */
+    /**
+     * The prison stands on a PLATEAU, ringed by a cliff and a moat.
+     *
+     * It used to sit on flat fields that ran right up to the wall, which made the boundary
+     * an arbitrary line in a meadow — you could see there was nothing stopping you but the
+     * barrier blocks. A plateau does the work the wall cannot: the ground itself says there
+     * is no way off, and the countryside beyond stays fully in view, which is the point.
+     *
+     *   |d| <= COMPOUND_HALF   the plateau, flat, where everything is built
+     *   .. CLIFF_END           the cliff face, dropping fast
+     *   .. MOAT_END            the moat, flooded to MOAT_LEVEL
+     *   beyond                 open country, rising back into hills
+     */
+    private static final int CLIFF_END = COMPOUND_HALF + 14;
+    private static final int MOAT_END = CLIFF_END + 26;
+    private static final int MOAT_FLOOR = GROUND_FLOOR + 1;
+    private static final int MOAT_LEVEL = GROUND_FLOOR + 4;
+
+    /** Distance over which the far bank blends into open hills. */
     private static final int BLEND = 90;
 
     private static final long SEED = 0x5C1FEE1DL;
@@ -69,19 +87,40 @@ public class PrisonWorldGenerator extends ChunkGenerator {
         return (n00 * (1 - fx) + n10 * fx) * (1 - fz) + (n01 * (1 - fx) + n11 * fx) * fz;
     }
 
-    /** How much of the open landscape shows through here: 0 inside the compound, 1 well outside. */
+    /** How much of the open landscape shows through here: 0 on the plateau, 1 well beyond. */
     private static double openness(int x, int z) {
-        int d = Math.max(Math.abs(x), Math.abs(z)) - COMPOUND_HALF;
+        int d = Math.max(Math.abs(x), Math.abs(z)) - MOAT_END;
         if (d <= 0) return 0;
         if (d >= BLEND) return 1;
         return smooth(d / (double) BLEND);
     }
 
+    /** True where the ring of water sits. */
+    public static boolean isMoat(int x, int z) {
+        int d = Math.max(Math.abs(x), Math.abs(z));
+        return d > CLIFF_END && d <= MOAT_END;
+    }
+
     public static int surfaceHeight(int x, int z) {
+        int d = Math.max(Math.abs(x), Math.abs(z));
+
+        if (d <= COMPOUND_HALF) return COMPOUND_Y;
+
+        if (d <= CLIFF_END) {
+            // The cliff. Ragged rather than a clean bevel, so it reads as rock.
+            double t = (d - COMPOUND_HALF) / (double) (CLIFF_END - COMPOUND_HALF);
+            double ragged = valueNoise(x / 11.0, z / 11.0) * 2.2;
+            return (int) Math.round(COMPOUND_Y - (COMPOUND_Y - MOAT_FLOOR) * smooth(t) + ragged);
+        }
+
+        if (d <= MOAT_END) return MOAT_FLOOR;
+
+        // The far bank, climbing out of the moat into open country.
+        double bank = smooth(Math.min(1.0, (d - MOAT_END) / 18.0));
+        double base = MOAT_FLOOR + (COMPOUND_Y - 6 - MOAT_FLOOR) * bank;
         double open = openness(x, z);
-        if (open <= 0) return COMPOUND_Y;
         double hills = valueNoise(x / 70.0, z / 70.0) * 9 + valueNoise(x / 23.0, z / 23.0) * 3;
-        return (int) Math.round(COMPOUND_Y + hills * open);
+        return (int) Math.round(base + hills * open);
     }
 
     @Override
@@ -97,8 +136,23 @@ public class PrisonWorldGenerator extends ChunkGenerator {
                 // their own ceilings, and nothing above can be dug through to reach it.
                 data.setBlock(x, Math.max(min, GROUND_FLOOR), z, Material.BEDROCK);
                 data.setRegion(x, GROUND_FLOOR + 1, z, x + 1, h - 3, z + 1, Material.STONE);
-                data.setRegion(x, h - 3, z, x + 1, h, z + 1, Material.DIRT);
-                data.setBlock(x, h, z, Material.GRASS_BLOCK);
+
+                boolean cliff = surfaceHeight(wx, wz) < COMPOUND_Y - 2
+                        && Math.max(Math.abs(wx), Math.abs(wz)) <= CLIFF_END;
+                if (cliff) {
+                    // Bare rock on the cliff face — grass on a near-vertical drop looks wrong.
+                    data.setRegion(x, h - 3, z, x + 1, h + 1, z + 1, Material.STONE);
+                    data.setBlock(x, h, z, ((wx + wz) % 5 == 0)
+                            ? Material.COBBLESTONE : Material.ANDESITE);
+                } else {
+                    data.setRegion(x, h - 3, z, x + 1, h, z + 1, Material.DIRT);
+                    data.setBlock(x, h, z, Material.GRASS_BLOCK);
+                }
+
+                if (isMoat(wx, wz)) {
+                    data.setBlock(x, h, z, Material.GRAVEL);
+                    data.setRegion(x, h + 1, z, x + 1, MOAT_LEVEL + 1, z + 1, Material.WATER);
+                }
             }
         }
     }
@@ -147,6 +201,7 @@ public class PrisonWorldGenerator extends ChunkGenerator {
                 if (h <= GROUND_FLOOR) continue;
                 int y = h + 1;
                 if (!region.isInRegion(wx, y, wz)) continue;
+                if (isMoat(wx, wz)) continue;
                 if (region.getType(wx, h, wz) != Material.GRASS_BLOCK) continue;
 
                 int roll = random.nextInt(100);

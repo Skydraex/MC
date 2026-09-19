@@ -22,9 +22,9 @@ public class MapLayout {
     public static final int GATE_W = 7;
 
     /** Underground mine level: the ore band, and the rim walkway above it. */
-    public static final int MINE_ORE_BOTTOM = 56;
-    public static final int MINE_ORE_TOP = 68;
-    public static final int MINE_RIM_Y = 70;
+    public static final int MINE_ORE_BOTTOM = 30;
+    public static final int MINE_ORE_TOP = 42;
+    public static final int MINE_RIM_Y = 44;
 
     /** One gate in the hub wall. kind is "mine", "room" or "intake". */
     public record Gate(String name, String wall, int centre, String kind, int[] corridor, int[] ward) { }

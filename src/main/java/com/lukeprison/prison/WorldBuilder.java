@@ -64,7 +64,7 @@ public class WorldBuilder {
     private static final int ORE_BOTTOM = MapLayout.MINE_ORE_BOTTOM;
     private static final int ORE_TOP = MapLayout.MINE_ORE_TOP;
     private static final int RIM_Y = MapLayout.MINE_RIM_Y;
-    private static final int PIT_CEILING = RIM_Y + 14;
+    private static final int PIT_CEILING = RIM_Y + 30;
     /** Blocks of descent from the hub floor down to the mine level. */
     private static final int SHAFT_DROP = Y - RIM_Y;
 
@@ -1511,16 +1511,35 @@ public class WorldBuilder {
     // ==================================================================================
 
     /** Themed dressing so mines do not all read the same the whole way from A to Z. */
-    private record MineTheme(Material pillar, Material trim, Material band, Material floor) { }
+    /**
+     * A mine's look. The first four are its masonry; the last four are what grows in it,
+     * which is what actually makes one mine feel different from another.
+     */
+    private record MineTheme(Material pillar, Material trim, Material band, Material floor,
+                             Material log, Material leaves, Material plant, Material glow) { }
 
     private static final MineTheme[] MINE_THEMES = {
-            new MineTheme(Material.COBBLESTONE, Material.STONE_BRICKS, Material.ANDESITE, Material.SMOOTH_STONE),
-            new MineTheme(Material.POLISHED_ANDESITE, Material.SMOOTH_STONE, Material.GRAY_TERRACOTTA, Material.POLISHED_ANDESITE),
-            new MineTheme(Material.POLISHED_BASALT, Material.SMOOTH_QUARTZ, Material.CYAN_TERRACOTTA, Material.SMOOTH_QUARTZ),
-            new MineTheme(Material.CUT_COPPER, Material.WAXED_CUT_COPPER, Material.ORANGE_TERRACOTTA, Material.CUT_COPPER),
-            new MineTheme(Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE, Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICKS),
-            new MineTheme(Material.BLACKSTONE, Material.POLISHED_BLACKSTONE_BRICKS, Material.GILDED_BLACKSTONE, Material.POLISHED_BLACKSTONE),
-            new MineTheme(Material.AMETHYST_BLOCK, Material.CALCITE, Material.PURPLE_TERRACOTTA, Material.CALCITE),
+            // Quarry — plain stone and oak, where everybody starts.
+            new MineTheme(Material.COBBLESTONE, Material.STONE_BRICKS, Material.ANDESITE, Material.SMOOTH_STONE,
+                    Material.OAK_LOG, Material.OAK_LEAVES, Material.FERN, Material.LANTERN),
+            // Overgrown — moss and mangrove reclaiming the workings.
+            new MineTheme(Material.MOSSY_COBBLESTONE, Material.MOSSY_STONE_BRICKS, Material.MOSS_BLOCK, Material.STONE,
+                    Material.MANGROVE_LOG, Material.MANGROVE_LEAVES, Material.MOSS_CARPET, Material.LANTERN),
+            // Blossom — pale stone and cherry.
+            new MineTheme(Material.POLISHED_DIORITE, Material.SMOOTH_QUARTZ, Material.PINK_TERRACOTTA, Material.QUARTZ_BRICKS,
+                    Material.CHERRY_LOG, Material.CHERRY_LEAVES, Material.PINK_PETALS, Material.LANTERN),
+            // Copperworks — oxidised copper and acacia.
+            new MineTheme(Material.CUT_COPPER, Material.WAXED_CUT_COPPER, Material.ORANGE_TERRACOTTA, Material.CUT_COPPER,
+                    Material.ACACIA_LOG, Material.FLOWERING_AZALEA_LEAVES, Material.AZALEA, Material.LANTERN),
+            // Deepworks — deepslate and glowing fungus.
+            new MineTheme(Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE, Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICKS,
+                    Material.WARPED_STEM, Material.WARPED_WART_BLOCK, Material.WARPED_ROOTS, Material.SHROOMLIGHT),
+            // Emberworks — blackstone and crimson.
+            new MineTheme(Material.BLACKSTONE, Material.POLISHED_BLACKSTONE_BRICKS, Material.GILDED_BLACKSTONE, Material.POLISHED_BLACKSTONE,
+                    Material.CRIMSON_STEM, Material.NETHER_WART_BLOCK, Material.CRIMSON_ROOTS, Material.SHROOMLIGHT),
+            // Geode — the last mines, calcite and amethyst.
+            new MineTheme(Material.AMETHYST_BLOCK, Material.CALCITE, Material.PURPLE_TERRACOTTA, Material.CALCITE,
+                    Material.PURPUR_PILLAR, Material.PURPUR_BLOCK, Material.SMALL_AMETHYST_BUD, Material.SEA_LANTERN),
     };
 
     private MineTheme themeFor(String rank) {
@@ -1602,7 +1621,108 @@ public class WorldBuilder {
 
         fillOre(d);
         dressRim(d, mt);
+        decorateCavern(d, mt);
         buildCageLanding(d);
+    }
+
+    /**
+     * Dresses a mine's cavern: planted terraces climbing the walls, trees, foliage hanging
+     * from the ceiling and a lit arch over the entrance.
+     *
+     * Up to now a mine was cladding, a guard rail and some lamps — correct, and flat. The
+     * cavern has thirty blocks of headroom above the rim now rather than fourteen, and this
+     * is what that headroom is for: the decoration goes UPWARD, against the walls and down
+     * from the ceiling, because the rim walkway is only four blocks wide and there is no
+     * room to landscape outwards without pushing every mine further from the hub.
+     *
+     * Everything sits at RIM_Y + 6 or above, clear of a player's head on the walkway, and
+     * none of it overhangs the ore.
+     */
+    private void decorateCavern(RankMineData.Def d, MineTheme mt) {
+        int[] rim = d.rim;
+        int ox1 = rim[0] - 1, oz1 = rim[1] - 1, ox2 = rim[2] + 1, oz2 = rim[3] + 1;
+
+        // --- Planted terraces, stepping in as they climb ---------------------------
+        for (int step = 0; step < 3; step++) {
+            int y = RIM_Y + 6 + step * 7;
+            int inset = step;
+            int x1 = ox1 + 1 + inset, x2 = ox2 - 1 - inset;
+            int z1 = oz1 + 1 + inset, z2 = oz2 - 1 - inset;
+            boolean top = step == 2;
+
+            for (int x = x1; x <= x2; x++) {
+                for (int z = z1; z <= z2; z++) {
+                    int depth = Math.min(Math.min(x - x1, x2 - x), Math.min(z - z1, z2 - z));
+                    if (depth > 2) continue;                       // a three-wide ledge only
+                    arch.set(x, y, z, depth == 0 ? mt.trim() : Material.ROOTED_DIRT);
+                    arch.set(x, y - 1, z, mt.band());              // the fascia below it
+
+                    if (depth == 0) continue;
+                    // Planting. Trees only on the top terrace, which has the headroom.
+                    long h = Math.floorMod(x * 31L + z * 17L + step * 7L, 100);
+                    if (top && h < 7) {
+                        cavernTree(x, y + 1, z, mt);
+                    } else if (h < 34) {
+                        arch.set(x, y + 1, z, mt.plant());
+                    } else if (h < 40) {
+                        arch.set(x, y + 1, z, mt.glow());
+                    } else if (!top && h < 52) {
+                        arch.set(x, y + 1, z, mt.leaves());        // low shrubs lower down
+                    }
+                }
+            }
+            // Lit posts on the terrace corners.
+            for (int[] c : new int[][]{{x1 + 1, z1 + 1}, {x2 - 1, z1 + 1}, {x1 + 1, z2 - 1}, {x2 - 1, z2 - 1}}) {
+                for (int dy = 1; dy <= 3; dy++) arch.set(c[0], y + dy, c[1], mt.log());
+                arch.set(c[0], y + 4, c[1], mt.glow());
+            }
+        }
+
+        // --- Foliage hanging from the ceiling over the walkway ---------------------
+        for (int x = ox1 + 2; x <= ox2 - 2; x++) {
+            for (int z = oz1 + 2; z <= oz2 - 2; z++) {
+                boolean nearWall = x < ox1 + 6 || x > ox2 - 6 || z < oz1 + 6 || z > oz2 - 6;
+                if (!nearWall) continue;
+                long h = Math.floorMod(x * 13L + z * 29L, 100);
+                if (h >= 12) continue;
+                int drop = 2 + (int) Math.floorMod(x + z, 4);
+                for (int dy = 1; dy <= drop; dy++) {
+                    arch.set(x, PIT_CEILING - dy, z, mt.leaves());
+                }
+                if (h < 3) arch.set(x, PIT_CEILING - drop - 1, z, mt.glow());
+            }
+        }
+
+        // --- A lit arch over the way in, so the entrance reads as the entrance ------
+        int lx = d.landing[0], lz = d.landing[2];
+        boolean spanX = isNS(d.wall);
+        for (int a = -4; a <= 4; a++) {
+            int x = spanX ? lx + a : lx;
+            int z = spanX ? lz : lz + a;
+            int height = 5 - Math.abs(a) / 2;
+            for (int dy = 4; dy <= height + 4; dy++) {
+                arch.set(x, RIM_Y + dy, z, Math.abs(a) == 4 ? mt.log() : mt.trim());
+            }
+            if (Math.abs(a) == 2) arch.set(x, RIM_Y + 4, z, mt.glow());
+        }
+    }
+
+    /** A small tree sized to fit between a terrace and the cavern ceiling. */
+    private void cavernTree(int x, int y, int z, MineTheme mt) {
+        int trunk = 3 + (int) Math.floorMod(x * 7L + z * 3L, 3);
+        if (y + trunk + 2 >= PIT_CEILING) return;
+        for (int dy = 0; dy < trunk; dy++) arch.set(x, y + dy, z, mt.log());
+        for (int dy = trunk - 2; dy <= trunk; dy++) {
+            int radius = (dy == trunk) ? 1 : 2;
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (dx == 0 && dz == 0 && dy < trunk) continue;
+                    if (Math.abs(dx) == radius && Math.abs(dz) == radius) continue;
+                    if (y + dy >= PIT_CEILING) continue;
+                    arch.set(x + dx, y + dy, z + dz, mt.leaves());
+                }
+            }
+        }
     }
 
     /** The walkway around the pit: surface, guard rail, lamp posts and a stair down into the ore. */

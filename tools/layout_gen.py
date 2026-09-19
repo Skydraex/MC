@@ -92,8 +92,12 @@ assignment = {g: w for w, gates in WALL_GATES.items() for g in gates}
 # A 13-layer ore band. The previous 29-layer band was both deeper than any
 # prison mine needs between resets and, multiplied across 26 pits, a large part
 # of why the first-boot build was enormous.
-MINE_ORE_BOTTOM = 56           # lowest ore layer
-MINE_ORE_TOP = 68              # highest ore layer
+# The mine level sits low on purpose. The pit ceiling used to be 14 blocks above the
+# rim, which is enough for lamps and a guard rail and nothing else — no terrain, no
+# trees, no structures. Dropping the band gives each mine a 30-block cavern to be
+# decorated in, while still leaving solid rock between its ceiling and the surface.
+MINE_ORE_BOTTOM = 30           # lowest ore layer
+MINE_ORE_TOP = 42              # highest ore layer
 MINE_RIM_Y = MINE_ORE_TOP + 2  # walkable rim around the pit; the lift lands here
 
 # The mines are reached ON FOOT, which is what decides where they can sit.

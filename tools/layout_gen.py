@@ -3,24 +3,25 @@ import json
 RANKS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 def mine_width(i):
-    return 80 + int(i * (250 - 80) / (len(RANKS) - 1))
+    return 24 + int(i * (60 - 24) / (len(RANKS) - 1))
 
 WIDTHS = {r: mine_width(i) for i, r in enumerate(RANKS)}
 MAX_W = max(WIDTHS.values())
 
-CORRIDOR_LEN = 14
-WARD_DEPTH = 16
-GATE_MARGIN = 10
-CORNER_BUFFER = MAX_W / 2 + CORRIDOR_LEN + WARD_DEPTH + 20
+CORRIDOR_LEN = 6
+WARD_DEPTH = 8
+GATE_MARGIN = 4
+CORNER_BUFFER = MAX_W / 2 + CORRIDOR_LEN + WARD_DEPTH + 8
 WALLS = ["N", "E", "S", "W"]
 
 # One non-mine "special" gate reserved on each wall's centre, same corridor+room idea,
 # each its own fixed-size direct feature (not a mine, but built the same principled way).
+# Half-widths/depths rescaled proportionally to the new, much smaller mine_width() range.
 SPECIALS = {
-    "N": ("FISHING", 90, 160),
-    "E": ("CRATES", 40, 50),
-    "S": ("YARD", 70, 90),
-    "W": ("CELLS", 90, 200),
+    "N": ("FISHING", 25, 45),
+    "E": ("CRATES", 12, 15),
+    "S": ("YARD", 20, 25),
+    "W": ("CELLS", 25, 55),
 }
 
 items = [WIDTHS[r] + GATE_MARGIN for r in RANKS]

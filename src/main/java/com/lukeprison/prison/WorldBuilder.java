@@ -63,6 +63,21 @@ public class WorldBuilder {
     private static final int[] LOGGING = {FISHING.room[0], FISHING.room[1] - 120, FISHING.room[2], FISHING.room[1] - 20};
     private static final int[] FARM    = {FISHING.room[0], LOGGING[1] - 120, FISHING.room[2], LOGGING[1] - 20};
 
+    /**
+     * Which ranks get a PvP pit beside their ward — one per wall (N, E, S).
+     *
+     * These used to be F/M/T, which sit mid-wall: pitRect() places a pit 6 blocks off the
+     * ward along the wall's own axis, and mid-wall wards are hemmed in by their neighbours
+     * with only 4-6 blocks of clearance on either side, so all three pits were being painted
+     * straight through an adjacent ward (F->ward_E, M->ward_CRATES, T->ward_S). An exhaustive
+     * sweep of both sides at every offset 2..80 and every size 20..6 against the full
+     * layout_gen.py region set finds no clear spot for F at all, so the pits moved to the
+     * rank that sits first on each wall, where the hub's corner buffer leaves 80+ blocks
+     * clear. Verified: zero overlaps for all three pits (and their bridge corridors) against
+     * every mine/ward/corridor/room/hub/starter/intake/logging/farm rectangle.
+     */
+    private static final String[] PIT_RANKS = {"A", "J", "Q"};
+
     private static final int CELL_SIZE = 6, CORRIDOR_WIDTH = 5;
     private static final int CELL_TIERS = 3;
 
@@ -288,12 +303,21 @@ public class WorldBuilder {
             arch.set(x, Y + 4, r[3] - 2, Material.LANTERN);
         }
         // Server name on the yard's own east wall (the only place this text appears now —
-        // the old hub had a second, colliding copy of this; that's gone).
+        // the old hub had a second, colliding copy of this; that's gone). A single BlockFont
+        // plane is a flat, single-layer block pattern — legible from one side only and
+        // mirror-flipped from the other (inherent to any single-layer glyph plane, not an
+        // axis-choice bug). So it's written TWICE, on two parallel planes either side of the
+        // wall, each with the mirror-opposite Axis, so it reads correctly from both directions.
         int nameW = BlockFont.width("SKY PRISON");
         int midZ = (r[1] + r[3]) / 2;
         BlockFont.write(world, "SKY PRISON", r[2] - 1, Y + 16, midZ - nameW / 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
+        BlockFont.write(world, "SKY PRISON", r[2] + 1, Y + 16, midZ + nameW / 2, BlockFont.Axis.NEG_Z, Material.LIGHT_BLUE_CONCRETE);
         for (int z = midZ - nameW / 2 - 1; z <= midZ + nameW / 2 + 1; z++) {
-            for (int dy = 9; dy <= 17; dy++) arch.set(r[2], Y + dy, z, arch.pick(Architect.PRISON_STONE));
+            for (int dy = 9; dy <= 17; dy++) {
+                arch.set(r[2] - 2, Y + dy, z, arch.pick(Architect.PRISON_STONE));
+                arch.set(r[2], Y + dy, z, arch.pick(Architect.PRISON_STONE));
+                arch.set(r[2] + 2, Y + dy, z, arch.pick(Architect.PRISON_STONE));
+            }
         }
         buildPrisonBus(r[0] + 4, Y + 1, INTAKE_GATE_Z - 2);
         sign(r[0] + 12, Y + 2, INTAKE_GATE_Z, BlockFace.EAST, "§8§lINTAKE", "Welcome to", "Sky Prison.", "Head east →");
@@ -401,17 +425,21 @@ public class WorldBuilder {
         int usableWidth = (ns ? (r[2] - r[0]) : (r[3] - r[1])) - 4;
         int perRow = Math.max(1, usableWidth / CELL_SIZE);
         int cellNumber = 1;
+        int vestibule = vestibuleCol(perRow);
+        // Iteration order must match buildCellBlock exactly (col0/row1, col0/row2, col1/row1,
+        // ...), or cell #N here is a different physical cell than the one signed "#N" in world.
         for (int tier = 0; tier < CELL_TIERS; tier++) {
             int y = Y + tier * CELL_TIER_HEIGHT;
             for (int col = 0; col < perRow; col++) {
-                if (col == vestibuleCol(perRow)) continue;
-                int[] a = rowSpot(r, col, 1, ns);
-                cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, a[0], a[1], a[0] + (ns ? CELL_SIZE - 1 : 0), a[1] + (ns ? 0 : CELL_SIZE - 1), y));
-                cellNumber++;
-            }
-            for (int col = 0; col < perRow; col++) {
-                int[] a = rowSpot(r, col, 2, ns);
-                cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, a[0], a[1], a[0] + (ns ? CELL_SIZE - 1 : 0), a[1] + (ns ? 0 : CELL_SIZE - 1), y));
+                if (col != vestibule) {
+                    int[] a = rowSpot(r, col, 1, ns);
+                    cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, a[0], a[1], a[0] + CELL_SIZE - 1, a[1] + CELL_SIZE - 1, y));
+                    cellNumber++;
+                }
+                // buildCell always lays a full CELL_SIZE x CELL_SIZE footprint from (x,z),
+                // whatever the wall's orientation, so the registered rect always spans 6x6 too.
+                int[] b = rowSpot(r, col, 2, ns);
+                cellRects.put(cellNumber, new CellManager.CellRect(cellNumber, b[0], b[1], b[0] + CELL_SIZE - 1, b[1] + CELL_SIZE - 1, y));
                 cellNumber++;
             }
         }
@@ -542,7 +570,7 @@ public class WorldBuilder {
         int[] r = YARD.room;
         pvpZones.add(new PvpZoneManager.Zone("The Yard", r[0], Y, r[1], r[2], Y + 10, r[3]));
         pvpZones.add(new PvpZoneManager.Zone("Hub PvP Lane", pvpLaneOrDefault()[0], Y, pvpLaneOrDefault()[1], pvpLaneOrDefault()[2], Y + 3, pvpLaneOrDefault()[3]));
-        for (String rank : new String[]{"F", "M", "T"}) {
+        for (String rank : PIT_RANKS) {
             RankMineData.Def d = RankMineData.RANKS.get(rank);
             if (d == null) continue;
             int[] p = pitRect(d);
@@ -562,7 +590,7 @@ public class WorldBuilder {
     private void buildYard() { buildArena(YARD.room, "The Yard", true); }
 
     private void buildWardPits() {
-        for (String rank : new String[]{"F", "M", "T"}) {
+        for (String rank : PIT_RANKS) {
             RankMineData.Def d = RankMineData.RANKS.get(rank);
             if (d == null) continue;
             buildArena(pitRect(d), rank + "-Ward Pit", false);
@@ -724,14 +752,23 @@ public class WorldBuilder {
 
     private void registerPondBounds() {
         int[] r = FISHING.room;
-        int x = r[0] + 10;
+        // FISHING.room is 50 x 45 after the layout rescale (x -25..25, z -290..-245), which is
+        // far too small for the old 19-28 block ponds — one alone ate the whole room, and the
+        // old wrap only reset X, so all ten stacked on one Z band. A 9x9 pond on an 11 x 13
+        // grid inside a 3-block margin gives 4 columns (x1 = -22,-11,0,11; x2 <= 19 <= 22) and
+        // 3 rows (z1 = -287,-274,-261; z2 <= -253, and the pond sign at z2+2 = -251 <= -248),
+        // i.e. 12 slots for 10 ponds, with no pond touching another or the room wall.
+        final int POND_SIZE = 8, POND_STRIDE_X = 11, POND_STRIDE_Z = 13, MARGIN = 3;
+        int x = r[0] + MARGIN, z = r[1] + MARGIN;
         for (FishingData.Pond pond : FishingData.PONDS.values()) {
-            int size = 18 + pond.tier;
-            pond.x1 = x; pond.x2 = Math.min(x + size, r[2] - 10);
-            pond.z2 = r[3] - 10; pond.z1 = Math.max(pond.z2 - size, r[1] + 10);
+            if (x + POND_SIZE > r[2] - MARGIN) { // out of width — wrap to the NEXT row, not the same one
+                x = r[0] + MARGIN;
+                z += POND_STRIDE_Z;
+            }
+            pond.x1 = x; pond.x2 = x + POND_SIZE;
+            pond.z1 = z; pond.z2 = z + POND_SIZE;
             pond.y = Y;
-            x = pond.x2 + 8;
-            if (x > r[2] - 20) x = r[0] + 10; // wrap to a second row if we run out of width
+            x += POND_STRIDE_X;
         }
     }
 
@@ -839,8 +876,10 @@ public class WorldBuilder {
         arch.doorway(INTAKE_WARD[0], Y + 1, INTAKE_GATE_Z, true, 3, 5, f);
         arch.doorway(INTAKE_WARD[2], Y + 1, INTAKE_GATE_Z, true, 3, 5, f);
         arch.doorway(HUB[0], Y + 1, INTAKE_GATE_Z, true, 3, 5, f);
-        connector((INTAKE_WARD[2] + HUB[0]) / 2, INTAKE_GATE_Z - 3, INTAKE_GATE_Z + 3, 3);
-        walkway(INTAKE_WARD[2] + 1, HUB[0] - 1, INTAKE_GATE_Z, 3);
+        // Both gaps are crossed along X at a fixed Z, so both are walkway()s. walkway's rails
+        // sit ON its halfWidth, so it needs halfWidth+1 to leave a doorway-matching 7 wide.
+        walkway(STARTER[2] + 1, INTAKE_WARD[0] - 1, INTAKE_GATE_Z, 4);
+        walkway(INTAKE_WARD[2] + 1, HUB[0] - 1, INTAKE_GATE_Z, 4);
 
         // Every mine: hub wall -> corridor -> ward -> mine, entirely self-contained.
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
@@ -863,18 +902,20 @@ public class WorldBuilder {
         connector(farmMidAlong, FARM[3] + 1, LOGGING[1] - 1, 2);
 
         // Ward pits.
-        for (String rank : new String[]{"F", "M", "T"}) {
+        for (String rank : PIT_RANKS) {
             RankMineData.Def d = RankMineData.RANKS.get(rank);
             if (d == null) continue;
             int[] w = wardRect(d);
             int[] p = pitRect(d);
             boolean ns = isNS(d.wall);
-            int mid = alongCenter(d.wall, w);
+            // pitRect offsets the pit along the wall's OWN axis, so the ward/pit shared
+            // boundary — and therefore this doorway's coordinate — lies on the PERPENDICULAR
+            // axis. Using alongCenter(d.wall, w) here would put an X where a Z belongs.
+            int mid = ns ? (w[1] + w[3]) / 2 : (w[0] + w[2]) / 2;
             if (ns) {
                 arch.doorway(w[0], Y + 1, mid, true, 1, 4, Material.CHISELED_DEEPSLATE);
                 arch.doorway(p[2], Y + 1, mid, true, 1, 4, Material.CHISELED_DEEPSLATE);
-                connector((w[0] + p[2]) / 2, mid - 1, mid + 1, 1); // tiny stub, real link below
-                walkway(p[2] + 1, w[0] - 1, mid, 1);
+                walkway(p[2] + 1, w[0] - 1, mid, 2); // halfWidth+1: matches the 3-wide doorways
             } else {
                 arch.doorway(mid, Y + 1, w[1], false, 1, 4, Material.CHISELED_DEEPSLATE);
                 arch.doorway(mid, Y + 1, p[3], false, 1, 4, Material.CHISELED_DEEPSLATE);
@@ -891,10 +932,10 @@ public class WorldBuilder {
         boolean alongZ = doorAlongZ(d.wall);
         int center = alongCenter(d.wall, w);
         int hubEdge = switch (d.wall) { case "N" -> HUB[1]; case "S" -> HUB[3]; case "E" -> HUB[2]; default -> HUB[0]; };
-        int wardOuter = nearEdge(oppositeWall(d.wall), w); // the ward edge touching the hub side
+        int wardOuter = nearEdge(d.wall, w); // the ward's own near-hub edge
         arch.doorway(alongZ ? hubEdge : center, Y + 1, alongZ ? center : hubEdge, alongZ, 3, 5, f);
         arch.doorway(alongZ ? wardOuter : center, Y + 1, alongZ ? center : wardOuter, alongZ, 3, 5, f);
-        if (alongZ) connector(center, hubEdge, wardOuter, 3); else walkway(Math.min(hubEdge, wardOuter), Math.max(hubEdge, wardOuter), center, 3);
+        bridgeDoorways(d.wall, center, hubEdge, wardOuter, 3);
 
         int gate = nearEdge(d.wall, mineRect(d));
         arch.doorway(alongZ ? gate : center, Y + 1, alongZ ? center : gate, alongZ, 1, 4, Material.CHISELED_DEEPSLATE);
@@ -908,12 +949,12 @@ public class WorldBuilder {
         boolean alongZ = doorAlongZ(sp.wall);
         int center = alongCenter(sp.wall, sp.ward);
         int hubEdge = switch (sp.wall) { case "N" -> HUB[1]; case "S" -> HUB[3]; case "E" -> HUB[2]; default -> HUB[0]; };
-        int wardOuter = nearEdge(oppositeWall(sp.wall), sp.ward);
+        int wardOuter = nearEdge(sp.wall, sp.ward); // the ward's own near-hub edge
         int roomGate = nearEdge(sp.wall, sp.room);
 
         arch.doorway(alongZ ? hubEdge : center, Y + 1, alongZ ? center : hubEdge, alongZ, 3, 6, f);
         arch.doorway(alongZ ? wardOuter : center, Y + 1, alongZ ? center : wardOuter, alongZ, 3, 6, f);
-        if (alongZ) connector(center, hubEdge, wardOuter, 3); else walkway(Math.min(hubEdge, wardOuter), Math.max(hubEdge, wardOuter), center, 3);
+        bridgeDoorways(sp.wall, center, hubEdge, wardOuter, 3);
         arch.doorway(alongZ ? roomGate : center, Y + 1, alongZ ? center : roomGate, alongZ, 3, 5, f);
 
         // Small directory sign right at the hub-facing gate of every special room.
@@ -925,6 +966,21 @@ public class WorldBuilder {
 
     private static String oppositeWall(String wall) {
         return switch (wall) { case "N" -> "S"; case "S" -> "N"; case "E" -> "W"; default -> "E"; };
+    }
+
+    /** Floors the gap between a hub wall's doorway and a ward's outer doorway, picking the
+     *  correctly-oriented helper straight from isNS(wall) — an N/S wall is crossed by walking
+     *  along Z at a fixed X ("center"), so it needs connector(); an E/W wall is crossed by
+     *  walking along X at a fixed Z ("center"), so it needs walkway(). Deriving this directly
+     *  from isNS (rather than from a separately-computed "alongZ" flag) means the two can never
+     *  drift out of sync with each other the way they previously did. */
+    private void bridgeDoorways(String wall, int center, int hubEdge, int wardOuter, int halfWidth) {
+        // connector() walks 2*halfWidth+1 wide (its rails sit one block OUTSIDE halfWidth),
+        // walkway() only 2*halfWidth-1 (its rails sit ON halfWidth). A doorway carved at
+        // halfWidth h is 2h+1 wide, so walkway must be handed h+1 to match it — otherwise
+        // every E/W bridge lands 2 blocks narrower than its own doorway.
+        if (isNS(wall)) connector(center, hubEdge, wardOuter, halfWidth);
+        else walkway(Math.min(hubEdge, wardOuter), Math.max(hubEdge, wardOuter), center, halfWidth + 1);
     }
 
     /** Road-style walkway: dark surface with quartz lane markings, iron-bar fencing, lamp posts. */

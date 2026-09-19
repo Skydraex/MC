@@ -719,7 +719,7 @@ public class WorldBuilder {
                 arch.set(cx + dx, Y, cz + dz, Material.POLISHED_BLACKSTONE);
                 for (int dy = 1; dy <= 4; dy++) {
                     arch.set(cx + dx, Y + dy, cz + dz,
-                            (edge && !entrance) ? (dy == 4 ? Material.CHAIN : Material.IRON_BARS) : Material.AIR);
+                            (edge && !entrance) ? Material.IRON_BARS : Material.AIR);
                 }
                 if (edge) arch.set(cx + dx, Y + 5, cz + dz, Material.POLISHED_BLACKSTONE);
             }
@@ -1156,7 +1156,9 @@ public class WorldBuilder {
         for (int x = p[0] + 4; x <= p[2] - 4; x += 8) {
             for (int z = p[1] + 4; z <= p[3] - 4; z += 8) {
                 arch.set(x, PIT_CEILING - 1, z, Material.SEA_LANTERN);
-                for (int dy = 2; dy <= 3; dy++) arch.set(x, PIT_CEILING - dy, z, Material.CHAIN);
+                // Iron bars as the lamp stem: Material.CHAIN does not exist in this Paper
+                // version, and bars link vertically once relinkConnectables() runs.
+                for (int dy = 2; dy <= 3; dy++) arch.set(x, PIT_CEILING - dy, z, Material.IRON_BARS);
             }
         }
 

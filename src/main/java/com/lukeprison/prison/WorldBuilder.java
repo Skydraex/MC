@@ -2445,8 +2445,12 @@ public class WorldBuilder {
         int lampY = d.oreTop + 3;
         for (int x : spread(p[0] + 1, p[2] - 1, 4)) {
             for (int z : spread(p[1] + 1, p[3] - 1, 4)) {
+                // Chain, not iron bars. The grid has to be four apart to hold light 8 on the
+                // ore three blocks below it, which is up to 121 hangers in the widest pit —
+                // and 121 bar columns thirty blocks tall is a cage, not a light fitting.
+                // A chain is the vanilla hanger for exactly this and reads as a thin line.
                 for (int y = PIT_CEILING - 1; y > lampY; y--) {
-                    arch.set(x, y, z, Material.IRON_BARS);
+                    arch.set(x, y, z, Material.CHAIN);
                 }
                 arch.set(x, lampY, z, Material.SEA_LANTERN);
             }

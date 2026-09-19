@@ -144,19 +144,35 @@ public class MapAuditor {
         count("hub walkway tiles", n);
     }
 
-    /** Solid to stand on, two blocks of clear air above. Reports once and returns. */
+    /**
+     * Solid to stand on, two blocks a player can walk through above.
+     *
+     * Headroom is judged by {@link Block#isPassable()}, NOT by {@code Material.isSolid()}.
+     * A wall sign reports solid, so the first version of this check reported the four
+     * directory signs at the foot of the watchtower as blocking the spokes — after the fix
+     * that put them there had worked. Signs, torches and plants have no collision box and a
+     * player walks straight through them; fences, walls and lanterns do have one and are
+     * real obstructions. isPassable() draws exactly that line, and it would still have
+     * caught the fence posts this check was written for.
+     */
     private boolean walkable(String what, int x, int y, int z) {
         if (!world.getBlockAt(x, y, z).getType().isSolid()) {
             fail(what, "no floor on the " + what + " here", x, y, z);
             return false;
         }
         for (int dy = 1; dy <= 2; dy++) {
-            if (world.getBlockAt(x, y + dy, z).getType().isSolid()) {
-                fail(what, "the " + what + " is blocked here", x, y + dy, z);
+            Block b = world.getBlockAt(x, y + dy, z);
+            if (!b.isPassable()) {
+                fail(what, "the " + what + " is blocked here by " + prettyBlock(b), x, y + dy, z);
                 return false;
             }
         }
         return true;
+    }
+
+    /** Lower-cased block name, so a finding says WHAT is in the way, not just that something is. */
+    private static String prettyBlock(Block b) {
+        return b.getType().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
     }
 
     /**
@@ -225,8 +241,8 @@ public class MapAuditor {
     private int standY(int x, int z, int fromY) {
         for (int y : new int[]{fromY + 1, fromY, fromY - 1}) {
             if (!world.getBlockAt(x, y - 1, z).getType().isSolid()) continue;
-            if (world.getBlockAt(x, y, z).getType().isSolid()) continue;
-            if (world.getBlockAt(x, y + 1, z).getType().isSolid()) continue;
+            if (!world.getBlockAt(x, y, z).isPassable()) continue;      // as above: collision, not "solid"
+            if (!world.getBlockAt(x, y + 1, z).isPassable()) continue;
             return y;
         }
         return Integer.MIN_VALUE;

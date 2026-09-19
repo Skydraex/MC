@@ -213,6 +213,56 @@ constrain an operator. So the boundary is written down here rather than enforced
 - Editing `server.properties`, or adding or removing plugins
 - **Fixing anything by hand.** See below — this is the important one
 
+### Before anything else
+
+1. **`git pull`.** This file changes often and the session that wrote it cannot see your
+   checkout.
+2. **Connect to the server.** Nothing below works until `ClaudeBot` is actually in the game —
+   the MCP tools will simply fail. Confirm it joined before starting a job.
+3. **Check which build is running.** Read the console, or ask the owner. Two things move the
+   world: the shaft fix (`e8f5776`) and the ore-face lighting (`3358b4a`). Checking an older
+   build wastes everyone's time and produces findings that are already fixed.
+4. `/gamemode creative ClaudeBot` when you need to fly. That only affects the bot, so it
+   needs no permission.
+
+### Walk the route by coordinates, not by pathfinding
+
+Corridors here are 7 blocks wide and the walls are solid. A bot one block off the centreline
+walks into a wall and reports an obstruction that is not there — that has already happened
+once, at the starter link: the corridor runs z −33 to −27 and the bot was at z −34, exactly
+one block outside it.
+
+So do not let the pathfinder improvise. The geometry is known exactly, and any route can be
+printed from it:
+
+```
+cd tools && python3 -c "
+import layout_gen as L
+print(L.regions['corridor_A'], L.regions['ward_A'], L.regions['shaft_A'])"
+```
+
+**Worked example — the route to Mine A.** Walk these in order, staying on the given axis:
+
+| step | x | y | z |
+|---|---|---|---|
+| hub spawn | 0 | 96 | 0 |
+| gate A, in the wall | −42 | 96 | −68 |
+| corridor A | −42 | 96 | −71 |
+| ward A, the cage | −42 | 96 | −80 |
+| top of the stair | −42 | 96 | −86 |
+| foot of the stair | −42 | 45 | −137 |
+| shaft meets the ring | −42 | 45 | −236 |
+| ring, turn west | −163 | 45 | −241 |
+| mine A landing | −163 | 45 | −247 |
+| mine A ore face | −163 | 43 | −261 |
+
+The stair drops y95 → y44 over 51 blocks, then the shaft runs level for 99 more. The shaft is
+8 wide (x −45 to −38), so stay near x = −42.
+
+If you stop somewhere that these coordinates say should be open, that IS a finding — report
+the exact block. If you stop somewhere outside them, you wandered off the path; get back on
+the centreline and continue.
+
 ### Report, do not fix
 
 You are in creative and you are OP, so you *can* patch things by hand. Do not.

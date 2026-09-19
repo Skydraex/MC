@@ -203,7 +203,11 @@ public class WorldBuilder {
                 arch.set(x, top - 1, z, arch.pick(Architect.PRISON_STONE));
                 arch.set(x, top - 2, z, Material.DEEPSLATE);
                 arch.set(x, top - 3, z, Material.DEEPSLATE);
-                arch.set(x, top - 4, z, Material.BEDROCK);   // hidden under three layers of stone
+                arch.set(x, top - 4, z, Material.DEEPSLATE);
+                // The bedrock backstop is inset two blocks from every edge. Laid flush it showed
+                // on the platform's cut face, which is the bedrock visible from the walkways.
+                boolean interior = x > r[0] + 1 && x < r[2] - 1 && z > r[1] + 1 && z < r[3] - 1;
+                if (interior) arch.set(x, top - 5, z, Material.BEDROCK);
             }
         }
         for (int x = r[0] - 1; x <= r[2] + 1; x++) {
@@ -219,8 +223,7 @@ public class WorldBuilder {
     private void skirt(int x, int y, int z, BlockFace facing) {
         if (!world.getBlockAt(x, y, z).getType().isAir()) return;
         arch.placeStair(x, y, z, Material.DEEPSLATE_BRICK_STAIRS, facing, true);
-        arch.set(x, y - 1, z, Material.DEEPSLATE);
-        arch.set(x, y - 2, z, Material.DEEPSLATE);
+        for (int dy = 1; dy <= 4; dy++) arch.set(x, y - dy, z, Material.DEEPSLATE);
     }
 
     private int[] pad(int[] r, int p) { return new int[]{r[0] - p, r[1] - p, r[2] + p, r[3] + p}; }
@@ -657,8 +660,8 @@ public class WorldBuilder {
         arch.prisonHall(w[0], w[1], w[2], w[3], Y, 9, Material.POLISHED_DEEPSLATE,
                 Material.DEEPSLATE_TILES, 7);
 
-        int hubEdge = wallCoord(g.wall(), HUB, true);
-        int wardNear = wallCoord(g.wall(), w, true);
+        int hubEdge = hubEdgeOn(g.wall());
+        int wardNear = hubFacingEdge(g.wall(), w);
         int half = MapLayout.GATE_W / 2;
         if (alongZ) {
             arch.doorway(hubEdge, Y + 1, g.centre(), true, half, 6, Material.SMOOTH_QUARTZ);
@@ -669,6 +672,15 @@ public class WorldBuilder {
         }
 
         buildGateNameplate(g);
+
+        // The intake ward is the only gate entered from BOTH sides: the hub through its corridor,
+        // and the starter yard through its outer wall. Open that side too, or arrivals walk out
+        // of the bus and straight into a dead end.
+        if (g.kind().equals("intake")) {
+            int outer = outerEdge(g.wall(), w);
+            if (alongZ) arch.doorway(outer, Y + 1, g.centre(), true, half, 6, Material.SMOOTH_QUARTZ);
+            else arch.doorway(g.centre(), Y + 1, outer, false, half, 6, Material.SMOOTH_QUARTZ);
+        }
 
         if (g.kind().equals("mine")) buildMineWard(g);
         else if (g.kind().equals("intake")) buildIntakeWard(g);
@@ -699,7 +711,7 @@ public class WorldBuilder {
      */
     private void buildGateNameplate(MapLayout.Gate g) {
         boolean alongZ = !isNS(g.wall());
-        int hubEdge = wallCoord(g.wall(), HUB, true);
+        int hubEdge = hubEdgeOn(g.wall());
         int inward = -outwardSign(g.wall());
         int topY = Y + 15;                       // glyph top row; glyphs run down to topY-6
 
@@ -716,9 +728,11 @@ public class WorldBuilder {
             }
             // Start coordinate depends on which way the axis advances: POS_* runs forward from
             // the left edge, NEG_* runs backward from the right edge.
+            // Start where the reader sees the first letter: the low end for the axes that run
+            // positive, the high end for those that run negative.
             int startAlong = switch (g.wall()) {
-                case "N", "W" -> g.centre() - panelW / 2;
-                default -> g.centre() + panelW / 2;     // S and E advance negatively
+                case "N", "E" -> g.centre() - panelW / 2;
+                default -> g.centre() + panelW / 2;     // S and W run negatively
             };
             int gx = alongZ ? hubEdge + inward : startAlong;
             int gz = alongZ ? startAlong : hubEdge + inward;
@@ -753,11 +767,13 @@ public class WorldBuilder {
 
     /** A nameplate must read correctly from inside the hub, whichever wall carries it. */
     private BlockFont.Axis nameplateAxis(String wall) {
+        // Text runs toward the reader's right. Standing in the hub you face the wall, so:
+        // north wall -> facing north -> right is +X; east wall -> facing east -> right is +Z.
         return switch (wall) {
             case "N" -> BlockFont.Axis.POS_X;
             case "S" -> BlockFont.Axis.NEG_X;
-            case "E" -> BlockFont.Axis.NEG_Z;
-            default -> BlockFont.Axis.POS_Z;
+            case "E" -> BlockFont.Axis.POS_Z;
+            default -> BlockFont.Axis.NEG_Z;
         };
     }
 
@@ -812,7 +828,7 @@ public class WorldBuilder {
     private void buildRoom(MapLayout.Room room) {
         int[] r = room.room();
         boolean alongZ = !isNS(room.wall());
-        int nearEdge = wallCoord(room.wall(), r, true);
+        int nearEdge = hubFacingEdge(room.wall(), r);
         int centre = alongZ ? (r[1] + r[3]) / 2 : (r[0] + r[2]) / 2;
 
         switch (room.name()) {
@@ -1435,6 +1451,39 @@ public class WorldBuilder {
         }
     }
 
+    /** A safe standing spot in the middle of one of the grounds zones. */
+    public Location groundSpot(String name) {
+        int[] r = MapLayout.ground(name).area();
+        return new Location(world, (r[0] + r[2]) / 2.0 + 0.5, Y + 1, (r[1] + r[3]) / 2.0 + 0.5);
+    }
+
+    /** A safe standing spot just inside one of the room gates. */
+    public Location roomSpot(String name) {
+        MapLayout.Room room = MapLayout.room(name);
+        int[] r = room.room();
+        return new Location(world, (r[0] + r[2]) / 2.0 + 0.5, Y + 1, (r[1] + r[3]) / 2.0 + 0.5);
+    }
+
+    /** The cell wing's door, on the ground tier. */
+    public Location cellWingSpot() {
+        int[] r = cellWing();
+        return new Location(world, (Math.abs(r[0]) < Math.abs(r[2]) ? r[0] : r[2]) + 2.5,
+                Y + 1, (r[1] + r[3]) / 2.0 + 0.5);
+    }
+
+    /** True if this position is inside any mine's pit chamber. */
+    public boolean isInAnyMine(int x, int y, int z) {
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (!d.hasMine()) continue;
+            int[] rim = d.rim;
+            if (x >= rim[0] - 2 && x <= rim[2] + 2 && z >= rim[1] - 2 && z <= rim[3] + 2
+                    && y >= d.oreBottom - 2 && y <= PIT_CEILING) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The ward cage a mine's lift returns you to. */
     public Location wardSpot(String rank) {
         int[] w = MapLayout.gate(rank).ward();
@@ -1501,13 +1550,42 @@ public class WorldBuilder {
 
     private static int outwardSign(String wall) { return (wall.equals("S") || wall.equals("E")) ? 1 : -1; }
 
-    /** A rect's edge coordinate on the given wall's axis; {@code near} picks the hub side. */
-    private static int wallCoord(String wall, int[] r, boolean near) {
+    /**
+     * The hub's own outer edge on a given wall.
+     *
+     * Kept separate from {@link #hubFacingEdge} on purpose. The two used to be one method with a
+     * "near" flag, which silently meant opposite things depending on whether you passed the hub
+     * rect or a ward rect — the hub's near edge on its north wall is its MINIMUM z, but a ward
+     * sitting outside that wall faces the hub with its MAXIMUM z. Every ward doorway was
+     * therefore carved into its outer wall while its hub-facing wall stayed solid, sealing all
+     * thirty gates shut.
+     */
+    private static int hubEdgeOn(String wall) {
         return switch (wall) {
-            case "N" -> near ? r[1] : r[3];
-            case "S" -> near ? r[3] : r[1];
-            case "E" -> near ? r[2] : r[0];
-            default -> near ? r[0] : r[2];
+            case "N" -> HUB[1];
+            case "S" -> HUB[3];
+            case "E" -> HUB[2];
+            default -> HUB[0];
+        };
+    }
+
+    /** The edge of a rect OUTSIDE the hub that faces back toward it. */
+    private static int hubFacingEdge(String wall, int[] r) {
+        return switch (wall) {
+            case "N" -> r[3];
+            case "S" -> r[1];
+            case "E" -> r[0];
+            default -> r[2];
+        };
+    }
+
+    /** The far edge of a rect outside the hub — the side pointing away from it. */
+    private static int outerEdge(String wall, int[] r) {
+        return switch (wall) {
+            case "N" -> r[1];
+            case "S" -> r[3];
+            case "E" -> r[2];
+            default -> r[0];
         };
     }
 

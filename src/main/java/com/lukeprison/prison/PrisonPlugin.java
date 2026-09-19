@@ -144,6 +144,25 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new LiftListener(this), this);
         // Replaces vanilla /help, which spans 21 pages of other plugins' commands.
         getServer().getPluginManager().registerEvents(new HelpGUI(), this);
+
+        // Night vision underground. The mines sit well below the surface with no daylight, and
+        // lamps alone leave the ore face too dark to work by; the effect is refreshed while a
+        // player is inside a pit chamber and cleared as soon as they leave.
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                if (worldBuilder == null) return;
+                var loc = p.getLocation();
+                boolean inMine = loc.getWorld() != null
+                        && loc.getWorld().equals(worldBuilder.getWorld())
+                        && worldBuilder.isInAnyMine(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+                if (inMine) {
+                    p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                            org.bukkit.potion.PotionEffectType.NIGHT_VISION, 400, 0, true, false, false));
+                } else if (p.hasPotionEffect(org.bukkit.potion.PotionEffectType.NIGHT_VISION)) {
+                    p.removePotionEffect(org.bukkit.potion.PotionEffectType.NIGHT_VISION);
+                }
+            }
+        }, 40L, 40L);
         getServer().getPluginManager().registerEvents(this, this);
 
         // A moment after the world is ready: sync sign text to clients, then spawn NPCs.

@@ -51,17 +51,23 @@ public class BlockFont {
     }
 
     /**
-     * Renders text on a vertical plane. (x, y, z) is the top-left corner of the first glyph.
-     * The axis says which way successive letters advance; the plane is perpendicular to the
-     * unused horizontal axis. Reading direction is chosen so the text is legible to a viewer
-     * standing on the "outside" face:
-     *   POS_X — read facing north;  NEG_X — read facing south;
-     *   POS_Z — read facing east;   NEG_Z — read facing west.
+     * Renders text on a vertical plane. (x, y, z) is the top-left corner of the first glyph AS
+     * THE READER SEES IT, and rows advance DOWNWARD from y.
      *
-     * For the NEG_X/NEG_Z axes both the letter-advance step and the in-glyph column both
-     * subtract from the world coordinate, which compounds into a full mirror image (right
-     * letter order, but each glyph — and the string as a whole — flipped, exactly like text
-     * seen in a mirror). The column is reflected here to cancel that out.
+     * The axis is the direction the text runs in world coordinates, and both the letter order
+     * and each glyph's own columns advance that way. Pick the axis from where the reader stands:
+     * text must run toward the reader's right.
+     *
+     *   viewer facing north (-Z) -> their right is +X -> POS_X, start at the lowest  X
+     *   viewer facing south (+Z) -> their right is -X -> NEG_X, start at the highest X
+     *   viewer facing east  (+X) -> their right is +Z -> POS_Z, start at the lowest  Z
+     *   viewer facing west  (-X) -> their right is -Z -> NEG_Z, start at the highest Z
+     *
+     * The previous version advanced the letter order negatively for NEG_X/NEG_Z but still laid
+     * each glyph's columns positively, in an attempt to "cancel a mirror". The result was that
+     * north- and east-facing walls read correctly while south- and west-facing walls came out
+     * with every letter mirrored, and no axis could render them properly. Columns now follow the
+     * axis, so all four walls read the same way round.
      */
     public static void write(World world, String text, int x, int y, int z, Axis axis, Material mat) {
         int cursor = 0;
@@ -71,13 +77,12 @@ public class BlockFont {
                 for (int col = 0; col < GLYPH_W; col++) {
                     if (glyph[row].charAt(col) != '#') continue;
                     int along = cursor + col;
-                    int alongMirrored = cursor + (GLYPH_W - 1 - col);
                     int by = y - row;
                     switch (axis) {
                         case POS_X -> world.getBlockAt(x + along, by, z).setType(mat, false);
-                        case NEG_X -> world.getBlockAt(x - alongMirrored, by, z).setType(mat, false);
+                        case NEG_X -> world.getBlockAt(x - along, by, z).setType(mat, false);
                         case POS_Z -> world.getBlockAt(x, by, z + along).setType(mat, false);
-                        case NEG_Z -> world.getBlockAt(x, by, z - alongMirrored).setType(mat, false);
+                        case NEG_Z -> world.getBlockAt(x, by, z - along).setType(mat, false);
                     }
                 }
             }

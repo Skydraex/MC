@@ -74,14 +74,25 @@ public class MenuGUI implements Listener {
         p.openInventory(inv);
     }
 
+    /**
+     * Every destination on the map, not only the mines.
+     *
+     * This used to list the 26 mines and nothing else, so there was no way to reach the ponds,
+     * the logging yard, the farm, the crate hall or the Yard from a menu — the one place a
+     * player looks for "where can I go".
+     *
+     * Mines fill the top rows; the places anyone can visit sit on the bottom row.
+     */
     public void openWarps(Player p) {
-        List<RankMineData.Def> all = new ArrayList<>(RankMineData.RANKS.values());
-        int size = ((all.size() + 8) / 9) * 9;
-        Inventory inv = Bukkit.createInventory(null, size, WARPS_TITLE);
+        List<RankMineData.Def> mines = new ArrayList<>();
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.hasMine()) mines.add(d);
+        }
+        int mineRows = (mines.size() + 8) / 9;
+        Inventory inv = Bukkit.createInventory(null, (mineRows + 1) * 9, WARPS_TITLE);
 
-        for (int i = 0; i < all.size(); i++) {
-            RankMineData.Def def = all.get(i);
-            if (def.rank.equals("FREE")) continue;
+        for (int i = 0; i < mines.size(); i++) {
+            RankMineData.Def def = mines.get(i);
             boolean unlocked = plugin.ranks().canAccessMine(p, def.rank);
             inv.setItem(i, item(
                     unlocked ? Material.LIME_STAINED_GLASS_PANE : Material.GRAY_STAINED_GLASS_PANE,
@@ -89,7 +100,35 @@ public class MenuGUI implements Listener {
                     unlocked ? "§7Click to teleport." : "§cLocked — rank up to access.",
                     "§7Ore: §f" + def.common));
         }
+
+        int base = mineRows * 9;
+        inv.setItem(base, item(Material.BEACON, "§b§lThe Hub", "§7Back to spawn."));
+        inv.setItem(base + 1, item(Material.FISHING_ROD, "§b§lFishing Ponds", "§7Out on the grounds."));
+        inv.setItem(base + 2, item(Material.OAK_LOG, "§2§lLogging Yard", "§7Chop trees for drops."));
+        inv.setItem(base + 3, item(Material.WHEAT, "§6§lThe Farm", "§7Cows and pigs."));
+        inv.setItem(base + 4, item(Material.ENDER_CHEST, "§6§lCrate Hall", "§7Open crates with keys."));
+        inv.setItem(base + 5, item(Material.IRON_SWORD, "§c§lThe Yard", "§cPvP zone.", "§7You drop everything on death."));
+        inv.setItem(base + 6, item(Material.IRON_BARS, "§7§lCell Block", "§7Claim or visit your cell."));
         p.openInventory(inv);
+    }
+
+    /** Teleports to one of the non-mine destinations on the warps menu. */
+    private boolean warpToPlace(Player p, String name) {
+        WorldBuilder b = plugin.builder();
+        Location dest = switch (name) {
+            case "The Hub" -> b.getHubSpawn();
+            case "Fishing Ponds" -> b.groundSpot("PONDS");
+            case "Logging Yard" -> b.groundSpot("LOGGING");
+            case "The Farm" -> b.groundSpot("FARM");
+            case "Crate Hall" -> b.roomSpot("CRATES");
+            case "The Yard" -> b.roomSpot("YARD");
+            case "Cell Block" -> b.cellWingSpot();
+            default -> null;
+        };
+        if (dest == null) return false;
+        p.teleport(dest);
+        p.sendMessage("§aWarped to " + name + ".");
+        return true;
     }
 
     private ItemStack item(Material mat, String name, String... loreLines) {
@@ -117,7 +156,7 @@ public class MenuGUI implements Listener {
             switch (name) {
                 case "§6§lRanks" -> { p.closeInventory(); ranksGUI.open(p); }
                 case "§b§lEnchants" -> { p.closeInventory(); enchantGUI.open(p); }
-                case "§a§lMine Warps" -> openWarps(p);
+                case "§a§lMine Warps", "§a§lWarps" -> openWarps(p);
                 case "§a§lShop" -> { p.closeInventory(); p.performCommand("shop"); }
                 case "§e§lDaily Reward" -> { p.closeInventory(); p.performCommand("daily"); }
                 case "§6§lCoinflips" -> { p.closeInventory(); p.performCommand("coinflip"); }
@@ -137,11 +176,14 @@ public class MenuGUI implements Listener {
             return;
         }
 
-        // Warps menu: teleport into the clicked mine if unlocked.
-        if (!name.contains("Mine ")) return;
-        String rank = name.substring(name.indexOf("Mine ") + 5).trim();
-        warpToMine(p, rank);
-        p.closeInventory();
+        // Warps menu.
+        String plain = org.bukkit.ChatColor.stripColor(name);
+        if (plain != null && plain.startsWith("Mine ")) {
+            warpToMine(p, plain.substring(5).trim());
+            p.closeInventory();
+            return;
+        }
+        if (plain != null && warpToPlace(p, plain)) p.closeInventory();
     }
 
     /** Shared by the GUI click above and the plain "/mine <rank>" text command — same rule

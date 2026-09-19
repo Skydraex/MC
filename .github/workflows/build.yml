@@ -42,6 +42,16 @@ jobs:
         id: build
         continue-on-error: true
         run: mvn -B clean package > build_output.txt 2>&1
+      # Maven's output is redirected to a file, so on a failure it has to be printed
+      # or the job log shows nothing but "exit code 1". This runs on every branch;
+      # only the commit-the-log-back step below is restricted to main.
+      - name: Show the build errors
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "----- [ERROR] lines -----"
+          grep -E "^\[ERROR\]" build_output.txt | head -60 || true
+          echo "----- full tail -----"
+          tail -80 build_output.txt
       - name: Save log on failure
         if: steps.build.outcome == 'failure' && github.ref == 'refs/heads/main'
         run: |

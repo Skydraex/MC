@@ -73,6 +73,15 @@ def main():
             f'        new Room("{name}", "{gates[name]["wall"]}", '
             f'new int[]{arr(regions[f"ward_{name}"])}, new int[]{arr(regions[f"room_{name}"])}),')
 
+    door_lines = []
+    for d in layout["doorways"]:
+        door_lines.append(
+            f'        new Doorway("{d["a"]}", "{d["b"]}", new int[]{arr(d["rect"])}, "{d["level"]}"),')
+
+    ring_lines = []
+    for wall in ("N", "E", "S", "W"):
+        ring_lines.append(f'        new int[]{arr(layout["ring"][wall])},')
+
     grounds_lines = []
     for name in ("PONDS", "LOGGING", "FARM"):
         grounds_lines.append(
@@ -131,6 +140,34 @@ public class MapLayout {{
     public static final int[] STARTER_LINK = {arr(regions["corridor_STARTERLINK"])};
     public static final int INTAKE_CENTRE = {int(round(gates["INTAKE"]["centre"]))};
 
+    /** The underground ring concourse: four legs, joined at the corners. */
+    public static final int[][] RING = {{
+{chr(10).join(ring_lines)}
+    }};
+
+    public static final int CONCOURSE_IN = {layout["concourse_in"]};
+    public static final int CONCOURSE_OUT = {layout["concourse_out"]};
+    public static final int SHAFT_W = {layout["shaft_w"]};
+    public static final int RIM_W = {layout["rim_w"]};
+
+    /**
+     * Every opening that has to exist between two areas, derived from the validated layout
+     * rather than carved by hand wherever a wall happened to be built.
+     *
+     * Three separate rounds of "I cannot get in" — all thirty wards, then the fishing
+     * lobby, then the green and all three grounds — were one missing doorway each. A
+     * builder that forgets one seals the area behind it, and nothing catches that. These
+     * are cut in a single pass after everything is built, so adding a region brings its
+     * doors with it.
+     *
+     * level is "HUB" for the surface and "MINE" for the underground.
+     */
+    public record Doorway(String a, String b, int[] rect, String level) {{ }}
+
+    public static final Doorway[] DOORWAYS = {{
+{chr(10).join(door_lines)}
+    }};
+
     public static Gate gate(String name) {{
         for (Gate g : GATES) if (g.name().equals(name)) return g;
         throw new IllegalArgumentException("no gate: " + name);
@@ -156,13 +193,14 @@ public class MapLayout {{
                   f'"{e["rare"]}",{e["fillerPrice"]},{e["commonPrice"]},{e["rarePrice"]}')
         if rank == "FREE":
             return (f'        RANKS.put("FREE", new Def({common},"W",0,'
-                    f'null,null,null,0,0));')
+                    f'null,null,null,null,0,0));')
         lift = lifts[rank]
         g = gates[rank]
         lx, ly, lz = lift["landing"]
         return (f'        RANKS.put("{rank}", new Def({common},'
                 f'"{g["wall"]}",{int(round(g["centre"]))},'
                 f'new int[]{arr(lift["pit"])},new int[]{arr(lift["rim"])},'
+                f'new int[]{arr(regions[f"shaft_{rank}"])},'
                 f'new int[]{{{int(round(lx))},{int(round(ly))},{int(round(lz))}}},'
                 f'{lift["ore_bottom"]},{lift["ore_top"]}));')
 
@@ -193,18 +231,20 @@ public class RankMineData {{
         public final int[] pit;
         /** {{x1,z1,x2,z2}} of the walkway wrapping the pit. */
         public final int[] rim;
-        /** {{x,y,z}} the cage lift sets players down on. */
+        /** {{x,y,z}} you arrive on, on foot or by cage: always solid rim, never the hole. */
         public final int[] landing;
+        /** {{x1,z1,x2,z2}} of the walk-down shaft from this rank's ward to the ring. */
+        public final int[] shaft;
 
         public Def(String rank, int cost, String next, String filler, String common, String rare,
                    double fillerPrice, double commonPrice, double rarePrice,
                    String wall, int gateCentre,
-                   int[] pit, int[] rim, int[] landing, int oreBottom, int oreTop) {{
+                   int[] pit, int[] rim, int[] shaft, int[] landing, int oreBottom, int oreTop) {{
             this.rank = rank; this.cost = cost; this.next = next;
             this.filler = filler; this.common = common; this.rare = rare;
             this.fillerPrice = fillerPrice; this.commonPrice = commonPrice; this.rarePrice = rarePrice;
             this.wall = wall; this.gateCentre = gateCentre;
-            this.pit = pit; this.rim = rim; this.landing = landing;
+            this.pit = pit; this.rim = rim; this.shaft = shaft; this.landing = landing;
             this.oreBottom = oreBottom; this.oreTop = oreTop;
         }}
 

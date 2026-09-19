@@ -99,18 +99,27 @@ public class CrateData {
 
     public static final Map<String, Crate> CRATES = new LinkedHashMap<>();
 
-    // Weights are out of 1000 per crate, so a weight reads directly as a tenth of a percent.
+    // The gear ladder.
     //
-    // Every crate runs the same ladder, and each rung is clearly worse than the one above it:
+    // Each rung has ONE weight, used by every crate that contains it. A player reads the
+    // percentage and expects it to mean something; "Miner's Pickaxe, 0.50%" in one crate
+    // and 1.80% in another is not a rarity, it is a coincidence.
     //
-    //   ~7%    a modest enchanted tool, better than vanilla but nothing special
-    //   ~2%    a good one, roughly what a player could buy with tokens
-    //   ~0.5%  a very good one, the best thing you can get without a jackpot
-    //   0.1%   the jackpot, and it beats the tier below it on every single stat
+    // Weights are out of 1000, so a weight reads directly as a tenth of a percent:
     //
-    // Nothing here is game-breaking on purpose: the strongest non-jackpot pickaxe tops out at
-    // Efficiency 5 / Fortune 2, which is around what the token shop sells, and it has no Mending.
-    // Only the jackpot goes above that, and only modestly.
+    //   120   12.0%   Uncommon    a real upgrade on a plain tool
+    //    35    3.5%   Rare        better than an average enchanting table roll
+    //     5    0.5%   Very rare   beats ANYTHING vanilla enchanting can produce
+    //     1    0.1%   Jackpot     beats the rung below it on every stat
+    //
+    // The 0.5% rung is the one that has to justify itself, and the test is concrete.
+    // Vanilla tops out at Efficiency 5 / Fortune 3 / Unbreaking 3, and a table roll cannot
+    // carry Mending, so anything at 0.5% has to be past that line on some axis. Efficiency 3
+    // / Fortune 1 / Unbreaking 3 is ten minutes at an enchanting table — handing it out once
+    // every two hundred keys was worse than handing out nothing.
+    //
+    // Everything still uses ordinary Minecraft enchantments. Only the 0.1% jackpot goes
+    // above vanilla levels, and only modestly.
 
     private static Map<Enchantment, Integer> ench(Object... pairs) {
         Map<Enchantment, Integer> m = new LinkedHashMap<>();
@@ -120,61 +129,75 @@ public class CrateData {
         return m;
     }
 
+    private static final int W_UNCOMMON = 120, W_RARE = 35, W_VERY_RARE = 5;
+
+    private static final String R_UNCOMMON = "\u00a7aUncommon";
+    private static final String R_RARE = "\u00a79Rare";
+    private static final String R_VERY_RARE = "\u00a75Very rare";
+
+    // -- pickaxes ---------------------------------------------------------------------
+    private static final Reward STURDY_PICK = Reward.gear("Sturdy Pickaxe", W_UNCOMMON,
+            Material.IRON_PICKAXE, "\u00a7fSturdy Pickaxe",
+            ench(Enchantment.EFFICIENCY, 3, Enchantment.UNBREAKING, 2), R_UNCOMMON);
+
+    private static final Reward MINERS_PICK = Reward.gear("Miner's Pickaxe", W_RARE,
+            Material.DIAMOND_PICKAXE, "\u00a7bMiner's Pickaxe",
+            ench(Enchantment.EFFICIENCY, 4, Enchantment.FORTUNE, 2, Enchantment.UNBREAKING, 3),
+            R_RARE);
+
+    private static final Reward FOREMANS_PICK = Reward.gear("Foreman's Pickaxe", W_VERY_RARE,
+            Material.DIAMOND_PICKAXE, "\u00a7dForeman's Pickaxe",
+            ench(Enchantment.EFFICIENCY, 5, Enchantment.FORTUNE, 3, Enchantment.UNBREAKING, 4,
+                 Enchantment.MENDING, 1), R_VERY_RARE);
+
+    // -- rods -------------------------------------------------------------------------
+    private static final Reward REINFORCED_ROD = Reward.gear("Reinforced Rod", W_UNCOMMON,
+            Material.FISHING_ROD, "\u00a7fReinforced Rod",
+            ench(Enchantment.LURE, 2, Enchantment.UNBREAKING, 2), R_UNCOMMON);
+
+    private static final Reward ANGLERS_ROD = Reward.gear("Angler's Rod", W_RARE,
+            Material.FISHING_ROD, "\u00a7bAngler's Rod",
+            ench(Enchantment.LURE, 3, Enchantment.LUCK_OF_THE_SEA, 2, Enchantment.UNBREAKING, 3),
+            R_RARE);
+
+    private static final Reward DEEPWATER_ROD = Reward.gear("Deepwater Rod", W_VERY_RARE,
+            Material.FISHING_ROD, "\u00a7dDeepwater Rod",
+            ench(Enchantment.LURE, 4, Enchantment.LUCK_OF_THE_SEA, 4, Enchantment.UNBREAKING, 4,
+                 Enchantment.MENDING, 1), R_VERY_RARE);
+
     static {
-        Crate miner = new Crate("miner", "Miner Crate", Material.TRIPWIRE_HOOK, "§b§lMiner Key");
+        Crate miner = new Crate("miner", "Miner Crate", Material.TRIPWIRE_HOOK, "\u00a7b\u00a7lMiner Key");
         miner.rewards.add(Reward.money("$2,500", 300, 2500));
         miner.rewards.add(Reward.tokens("150 Tokens", 250, 150));
-        miner.rewards.add(Reward.money("$7,500", 200, 7500));
-        miner.rewards.add(Reward.tokens("400 Tokens", 120, 400));
+        miner.rewards.add(Reward.money("$7,500", 180, 7500));
+        miner.rewards.add(Reward.tokens("400 Tokens", 60, 400));
         miner.rewards.add(Reward.item("Golden Apple x2", 50, Material.GOLDEN_APPLE, 2));
-        miner.rewards.add(Reward.gear("Sturdy Pickaxe", 60, Material.IRON_PICKAXE,
-                "§f§lSturdy Pickaxe",
-                ench(Enchantment.EFFICIENCY, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
-        miner.rewards.add(Reward.gear("Miner's Pickaxe", 18, Material.DIAMOND_PICKAXE,
-                "§b§lMiner's Pickaxe",
-                ench(Enchantment.EFFICIENCY, 3, Enchantment.FORTUNE, 1,
-                        Enchantment.UNBREAKING, 3), "§bRare"));
-        miner.rewards.add(Reward.gear("Foreman's Pickaxe", 2, Material.DIAMOND_PICKAXE,
-                "§5§lForeman's Pickaxe",
-                ench(Enchantment.EFFICIENCY, 5, Enchantment.FORTUNE, 2,
-                        Enchantment.UNBREAKING, 4), "§5Very rare"));
+        miner.rewards.add(STURDY_PICK);
+        miner.rewards.add(MINERS_PICK);
+        miner.rewards.add(FOREMANS_PICK);
         CRATES.put(miner.id, miner);
 
-        Crate angler = new Crate("angler", "Angler Crate", Material.TRIPWIRE_HOOK, "§a§lAngler Key");
+        Crate angler = new Crate("angler", "Angler Crate", Material.TRIPWIRE_HOOK, "\u00a7a\u00a7lAngler Key");
         angler.rewards.add(Reward.money("$4,000", 300, 4000));
         angler.rewards.add(Reward.tokens("250 Tokens", 250, 250));
         angler.rewards.add(Reward.money("$12,000", 180, 12000));
-        angler.rewards.add(Reward.tokens("600 Tokens", 120, 600));
+        angler.rewards.add(Reward.tokens("600 Tokens", 60, 600));
         angler.rewards.add(Reward.item("Cooked Salmon x16", 50, Material.COOKED_SALMON, 16));
-        angler.rewards.add(Reward.gear("Reinforced Rod", 70, Material.FISHING_ROD,
-                "§f§lReinforced Rod",
-                ench(Enchantment.LURE, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
-        angler.rewards.add(Reward.gear("Angler's Rod", 25, Material.FISHING_ROD,
-                "§b§lAngler's Rod",
-                ench(Enchantment.LURE, 3, Enchantment.LUCK_OF_THE_SEA, 2,
-                        Enchantment.UNBREAKING, 3), "§bRare"));
-        angler.rewards.add(Reward.gear("Deepwater Rod", 5, Material.FISHING_ROD,
-                "§5§lDeepwater Rod",
-                ench(Enchantment.LURE, 4, Enchantment.LUCK_OF_THE_SEA, 3,
-                        Enchantment.UNBREAKING, 4), "§5Very rare"));
+        angler.rewards.add(REINFORCED_ROD);
+        angler.rewards.add(ANGLERS_ROD);
+        angler.rewards.add(DEEPWATER_ROD);
         CRATES.put(angler.id, angler);
 
-        Crate vote = new Crate("vote", "Vote Crate", Material.TRIPWIRE_HOOK, "§e§lVote Key");
-        vote.rewards.add(Reward.money("$5,000", 300, 5000));
-        vote.rewards.add(Reward.tokens("300 Tokens", 260, 300));
-        vote.rewards.add(Reward.money("$15,000", 180, 15000));
-        vote.rewards.add(Reward.tokens("800 Tokens", 140, 800));
-        vote.rewards.add(Reward.item("Diamond x3", 70, Material.DIAMOND, 3));
-        vote.rewards.add(Reward.gear("Sturdy Pickaxe", 25, Material.IRON_PICKAXE,
-                "§f§lSturdy Pickaxe",
-                ench(Enchantment.EFFICIENCY, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
-        vote.rewards.add(Reward.gear("Reinforced Rod", 20, Material.FISHING_ROD,
-                "§f§lReinforced Rod",
-                ench(Enchantment.LURE, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
-        vote.rewards.add(Reward.gear("Miner's Pickaxe", 5, Material.DIAMOND_PICKAXE,
-                "§b§lMiner's Pickaxe",
-                ench(Enchantment.EFFICIENCY, 3, Enchantment.FORTUNE, 1,
-                        Enchantment.UNBREAKING, 3), "§bRare"));
+        Crate vote = new Crate("vote", "Vote Crate", Material.TRIPWIRE_HOOK, "\u00a7e\u00a7lVote Key");
+        vote.rewards.add(Reward.money("$5,000", 260, 5000));
+        vote.rewards.add(Reward.tokens("300 Tokens", 200, 300));
+        vote.rewards.add(Reward.money("$15,000", 140, 15000));
+        vote.rewards.add(Reward.tokens("800 Tokens", 50, 800));
+        vote.rewards.add(Reward.item("Diamond x3", 40, Material.DIAMOND, 3));
+        vote.rewards.add(STURDY_PICK);
+        vote.rewards.add(REINFORCED_ROD);
+        vote.rewards.add(MINERS_PICK);
+        vote.rewards.add(ANGLERS_ROD);
         CRATES.put(vote.id, vote);
     }
 
@@ -200,6 +223,43 @@ public class CrateData {
         return it;
     }
 
+    /**
+     * Checks the loot tables hold together, and is called on startup so a mistake shows up in
+     * the console rather than in someone's inventory two hundred keys later.
+     *
+     * Three rules, each one written because it was broken at least once:
+     *   1. Weights total 1000 per crate, so a displayed percentage is exact.
+     *   2. An item has the same weight in every crate, so its rarity means one thing.
+     *   3. Anything rarer than 1% carries Mending. A sub-1% tool that wears out and is gone
+     *      is not a reward, and a player will not get another one.
+     */
+    public static List<String> audit() {
+        List<String> problems = new ArrayList<>();
+        Map<String, Integer> weightOf = new LinkedHashMap<>();
+
+        for (Crate crate : CRATES.values()) {
+            int total = 0;
+            for (Reward r : crate.rewards) total += r.weight;
+            if (total != 1000) {
+                problems.add(crate.display + " weights total " + total
+                        + ", not 1000 — its displayed odds are wrong");
+            }
+            for (Reward r : crate.rewards) {
+                Integer seen = weightOf.putIfAbsent(r.display, r.weight);
+                if (seen != null && seen != r.weight) {
+                    problems.add("\"" + r.display + "\" is weight " + seen + " in one crate and "
+                            + r.weight + " in " + crate.display + " — pick one rarity");
+                }
+                if (r.weight < 10 && r.isGear() && !r.enchants.containsKey(Enchantment.MENDING)) {
+                    problems.add("\"" + r.display + "\" drops at "
+                            + String.format("%.2f%%", r.weight / 10.0)
+                            + " but has no Mending — it would break and be unreplaceable");
+                }
+            }
+        }
+        return problems;
+    }
+
     /** Weighted pick from a crate's standard table. */
     public static Reward roll(Crate crate) {
         int total = 0;
@@ -222,35 +282,57 @@ public class CrateData {
      * than at the absurd numbers OP servers use, so a winner is powerful, not untouchable.
      */
     public static ItemStack buildJackpot() {
-        boolean pickaxe = RANDOM.nextBoolean();
-        if (pickaxe) {
-            ItemStack pick = new ItemStack(Material.DIAMOND_PICKAXE);
-            ItemMeta meta = pick.getItemMeta();
-            meta.setDisplayName("§6§lWarden's Pickaxe");
-            meta.addEnchant(Enchantment.EFFICIENCY, 7, true);
-            meta.addEnchant(Enchantment.FORTUNE, 5, true);
-            meta.addEnchant(Enchantment.UNBREAKING, 5, true);
-            meta.addEnchant(Enchantment.MENDING, 1, true);
-            List<String> lore = new ArrayList<>();
-            lore.add("§7A legendary find.");
-            lore.add("§8Won from a crate — 0.1% chance.");
-            meta.setLore(lore);
-            pick.setItemMeta(meta);
-            return pick;
+        return RANDOM.nextBoolean() ? buildNamedGear("wardens_pickaxe") : buildNamedGear("leviathan_rod");
+    }
+
+    /**
+     * Every named piece of gear by id, including the two jackpots, so admins can hand one
+     * out for testing without opening crates until a 0.1% comes up.
+     */
+    public static final List<String> GEAR_IDS = List.of(
+            "sturdy_pickaxe", "miners_pickaxe", "foremans_pickaxe", "wardens_pickaxe",
+            "reinforced_rod", "anglers_rod", "deepwater_rod", "leviathan_rod");
+
+    public static ItemStack buildNamedGear(String id) {
+        switch (id) {
+            case "sturdy_pickaxe" -> { return buildItem(STURDY_PICK); }
+            case "miners_pickaxe" -> { return buildItem(MINERS_PICK); }
+            case "foremans_pickaxe" -> { return buildItem(FOREMANS_PICK); }
+            case "reinforced_rod" -> { return buildItem(REINFORCED_ROD); }
+            case "anglers_rod" -> { return buildItem(ANGLERS_ROD); }
+            case "deepwater_rod" -> { return buildItem(DEEPWATER_ROD); }
+            case "wardens_pickaxe" -> {
+                return jackpot(Material.DIAMOND_PICKAXE, "\u00a76\u00a7lWarden's Pickaxe",
+                        ench(Enchantment.EFFICIENCY, 7, Enchantment.FORTUNE, 4,
+                             Enchantment.UNBREAKING, 5, Enchantment.MENDING, 1));
+            }
+            case "leviathan_rod" -> {
+                return jackpot(Material.FISHING_ROD, "\u00a76\u00a7lLeviathan Rod",
+                        ench(Enchantment.LURE, 5, Enchantment.LUCK_OF_THE_SEA, 5,
+                             Enchantment.UNBREAKING, 5, Enchantment.MENDING, 1));
+            }
+            default -> { return null; }
         }
-        ItemStack rod = new ItemStack(Material.FISHING_ROD);
-        ItemMeta meta = rod.getItemMeta();
-        meta.setDisplayName("§6§lLeviathan Rod");
-        meta.addEnchant(Enchantment.LURE, 5, true);
-        meta.addEnchant(Enchantment.LUCK_OF_THE_SEA, 5, true);
-        meta.addEnchant(Enchantment.UNBREAKING, 5, true);
-        meta.addEnchant(Enchantment.MENDING, 1, true);
+    }
+
+    /**
+     * The 0.1% prizes. Strong, but bounded: levels sit modestly above vanilla rather than at
+     * the absurd numbers OP servers use, so a winner is powerful, not untouchable. Both carry
+     * Mending, because a prize this rare must not be consumable.
+     */
+    private static ItemStack jackpot(Material mat, String name, Map<Enchantment, Integer> enchants) {
+        ItemStack it = new ItemStack(mat);
+        ItemMeta meta = it.getItemMeta();
+        meta.setDisplayName(name);
+        for (Map.Entry<Enchantment, Integer> e : enchants.entrySet()) {
+            meta.addEnchant(e.getKey(), e.getValue(), true);
+        }
         List<String> lore = new ArrayList<>();
-        lore.add("§7A legendary find.");
-        lore.add("§8Won from a crate — 0.1% chance.");
+        lore.add("\u00a76Legendary");
+        lore.add("\u00a78One in a thousand crates.");
         meta.setLore(lore);
-        rod.setItemMeta(meta);
-        return rod;
+        it.setItemMeta(meta);
+        return it;
     }
 
     /** Builds a physical key item for a crate. */

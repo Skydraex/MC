@@ -58,7 +58,7 @@ def shared_edge(a, b):
 
 
 def is_underground(name):
-    return name.startswith(("mine_", "rim_"))
+    return name.startswith(("mine_", "rim_", "ring_", "shaft_"))
 
 
 def main():
@@ -105,44 +105,113 @@ def main():
             failures.append(
                 f"room {name}: meets its ward over only {edge} blocks (need {MIN_DOOR})")
 
-    # ---- 4. Every mine has a lift landing standing on its own rim -------
+    # ---- 4. Every mine has a landing standing on its own rim ------------
     for rank, lift in lifts.items():
         pit, rim = lift["pit"], lift["rim"]
         lx, ly, lz = lift["landing"]
         r = rect_norm(rim)
         p = rect_norm(pit)
         if not (r[0] <= lx <= r[2] and r[1] <= lz <= r[3]):
-            failures.append(f"mine {rank}: lift landing {lx},{lz} is outside its rim")
+            failures.append(f"mine {rank}: landing {lx},{lz} is outside its rim")
         if p[0] < lx < p[2] and p[1] < lz < p[3]:
-            failures.append(f"mine {rank}: lift landing {lx},{lz} is inside the pit — players would fall in")
+            failures.append(f"mine {rank}: landing {lx},{lz} is inside the pit — players would fall in")
         if not (r[0] < p[0] and r[1] < p[1] and r[2] > p[2] and r[3] > p[3]):
             failures.append(f"mine {rank}: rim does not fully enclose the pit")
         if lift["ore_top"] >= ly:
             failures.append(
                 f"mine {rank}: rim y{ly} is not above the ore band top y{lift['ore_top']}")
 
-    # ---- 5. Everything on the surface is reachable from the hub ---------
-    surface = {k: v for k, v in regions.items() if not is_underground(k)}
-    surface["HUB"] = hub
-    reached, frontier = {"HUB"}, ["HUB"]
-    while frontier:
-        cur = frontier.pop()
-        for name, rect in surface.items():
-            if name in reached:
+    # ---- 4b. The walk down: ward -> shaft -> ring -> rim ----------------
+    #
+    # This is the check the old validator had no equivalent of, and the reason
+    # every ward was sealed for two builds running: a mine can be perfectly
+    # well formed and still have no way in.
+    ring_legs = {k: v for k, v in regions.items() if k.startswith("ring_")}
+    if len(ring_legs) != 4:
+        failures.append(f"ring concourse has {len(ring_legs)} legs, expected 4")
+
+    for name, leg in ring_legs.items():
+        joins = sum(1 for other, r in ring_legs.items()
+                    if other != name and shared_edge(leg, r) >= MIN_DOOR)
+        if joins < 2:
+            failures.append(
+                f"{name} joins only {joins} other ring leg(s) — the concourse is not a loop")
+
+    def touches_ring(rect):
+        return max((shared_edge(rect, leg) for leg in ring_legs.values()), default=0)
+
+    for rank in lifts:
+        shaft = regions.get(f"shaft_{rank}")
+        ward = regions.get(f"ward_{rank}")
+        rim = regions[f"rim_{rank}"]
+
+        if shaft is None:
+            failures.append(f"mine {rank}: no shaft tunnel — it can only be reached by lift")
+            continue
+        # The stair is vertical, so in plan view the shaft must start beneath
+        # the ward it descends from.
+        under_ward = shared_edge(shaft, ward)
+        if under_ward < MIN_DOOR:
+            failures.append(
+                f"mine {rank}: shaft meets its ward over only {under_ward} blocks "
+                f"(need {MIN_DOOR}) — the stair would land in rock")
+        on_ring = touches_ring(shaft)
+        if on_ring < MIN_DOOR:
+            failures.append(
+                f"mine {rank}: shaft meets the ring over only {on_ring} blocks (need {MIN_DOOR})")
+        rim_on_ring = touches_ring(rim)
+        if rim_on_ring < MIN_DOOR:
+            failures.append(
+                f"mine {rank}: rim meets the ring over only {rim_on_ring} blocks (need {MIN_DOOR})")
+
+    # ---- 4c. Every mine is walkable from every ward --------------------
+    under = {k: v for k, v in regions.items() if is_underground(k)}
+    start = next((k for k in under if k.startswith("shaft_")), None)
+    if start:
+        seen, frontier = {start}, [start]
+        while frontier:
+            cur = frontier.pop()
+            for name, rect in under.items():
+                if name in seen or name.startswith("mine_"):
+                    continue   # the pit itself is a hole, not a walkway
+                if shared_edge(under[cur], rect) >= MIN_DOOR:
+                    seen.add(name)
+                    frontier.append(name)
+        for name in under:
+            if name.startswith("mine_") or name in seen:
                 continue
-            if shared_edge(surface[cur], rect) >= MIN_DOOR:
-                reached.add(name)
-                frontier.append(name)
+            failures.append(f"not walkable from the shafts: {name}")
+
+    # ---- 5. Everything is reachable THROUGH THE DOORWAYS ----------------
+    #
+    # Walking the doorway graph, not raw adjacency. Two regions touching means
+    # nothing if no opening is ever cut between them — that is precisely how
+    # the wards, the fishing lobby and the grounds all ended up sealed while
+    # this check reported a fully connected map.
+    doors = layout["doorways"]
+    adj = {}
+    for d in doors:
+        adj.setdefault(d["a"], set()).add(d["b"])
+        adj.setdefault(d["b"], set()).add(d["a"])
+
+    surface = [k for k in regions if not is_underground(k)]
+    reached, frontier = {"hub_HUB"}, ["hub_HUB"]
+    while frontier:
+        for nxt in adj.get(frontier.pop(), ()):
+            if nxt not in reached:
+                reached.add(nxt)
+                frontier.append(nxt)
 
     for name in surface:
         if name not in reached:
-            failures.append(f"unreachable from the hub: {name}")
+            failures.append(f"no doorway route from the hub to {name}")
 
     # ---- Report ---------------------------------------------------------
     print(f"Hub: {hub[2] - hub[0]} x {hub[3] - hub[1]}   gates: {len(gates)}")
-    print(f"Surface regions: {len(surface) - 1}   mine pits: {len(lifts)}")
-    print(f"Reachable from hub: {len(reached) - 1} / {len(surface) - 1}"
-          f"   (shared edge >= {MIN_DOOR} blocks)")
+    print(f"Surface regions: {len(surface)}   mine pits: {len(lifts)}")
+    print(f"Doorways cut: {len(doors)}")
+    print(f"Reachable from hub through them: "
+          f"{len([n for n in surface if n in reached])} / {len(surface)}")
 
     if failures:
         print(f"\nFAIL — {len(failures)} problem(s):")
@@ -153,7 +222,9 @@ def main():
         return 1
 
     print("\n--- Summary ---")
-    print(f"all {len(lifts)} mines reachable by lift from their own ward,")
+    print(f"all {len(lifts)} mines reachable on foot from their own ward,")
+    print(f"  (stair down, {layout['concourse_in'] - layout['hub_half'] - layout['shaft_near']}-block shaft, "
+          f"then the ring concourse)")
     print("every gate bridges hub to ward at full door width,")
     print("every surface area walkable from the hub, no overlaps, no label collisions.")
     return 0

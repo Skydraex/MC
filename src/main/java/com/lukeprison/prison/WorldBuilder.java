@@ -167,10 +167,177 @@ public class WorldBuilder {
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.hasMine()) buildMinePit(d);
         }
+        buildMineAccess();
+
+        int doors = carveDoorways();
+        plugin.getLogger().info("Cut " + doors + " doorways from the validated layout.");
 
         int linked = arch.relinkConnectables();
         plugin.getLogger().info("Prison built. Connection states applied to " + linked + " blocks.");
         writeMarker();
+    }
+
+    /**
+     * Cuts every opening the layout says must exist, after everything else is built.
+     *
+     * Openings used to be carved by whichever method built the wall, each with a hand-picked
+     * edge and width. That failed three times in a row and always the same way: all thirty
+     * wards were sealed, then the fishing lobby, then the green's perimeter and all three
+     * grounds. A builder that forgets one seals off everything behind it, and nothing catches
+     * it — the world looks finished and you simply cannot get in.
+     *
+     * So no builder carves its own openings any more. MapLayout.DOORWAYS is derived from the
+     * same validated geometry map_check walks, which means an area that the checker says is
+     * reachable is an area that actually has a hole in the wall.
+     */
+    private int carveDoorways() {
+        int cut = 0;
+        for (MapLayout.Doorway d : MapLayout.DOORWAYS) {
+            int base = d.level().equals("MINE") ? MapLayout.MINE_RIM_Y : Y;
+            Material threshold = d.level().equals("MINE")
+                    ? Material.POLISHED_DEEPSLATE : Material.POLISHED_ANDESITE;
+            int[] r = d.rect();
+            for (int x = r[0]; x <= r[2]; x++) {
+                for (int z = r[1]; z <= r[3]; z++) {
+                    // Only lay a threshold where there is no floor already, so a doorway onto
+                    // grass or gravel does not stamp a grey rectangle across it.
+                    if (!world.getBlockAt(x, base, z).getType().isSolid()) {
+                        arch.set(x, base, z, threshold);
+                    }
+                    for (int dy = 1; dy <= 4; dy++) arch.set(x, base + dy, z, Material.AIR);
+                }
+            }
+            cut++;
+        }
+        return cut;
+    }
+
+    // ==================================================================================
+    // The walk down to the mines
+    //
+    // Mines used to be reachable only by stepping into a cage lift, which teleports. The
+    // mine level is now a real place you walk to: out of your gate, down a stair that
+    // descends inside the shaft, along the shaft, and onto a ring concourse that every
+    // one of the twenty-six mines opens off. The lifts still work and still go straight
+    // there, for players who would rather not walk it every trip.
+    //
+    // The stair is laid as STAIR BLOCKS, not a staircase of full blocks. A column of full
+    // blocks is a jump at every step, which is slow, noisy and costs hunger; stairs are a
+    // smooth walk up and down.
+    // ==================================================================================
+
+    private static final int RIM_Y = MapLayout.MINE_RIM_Y;
+    /** Blocks of descent from the hub floor to the mine level. */
+    private static final int SHAFT_DROP = Y - RIM_Y;
+
+    private void buildMineAccess() {
+        buildRingConcourse();
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.hasMine()) buildShaft(d);
+        }
+    }
+
+    /** The ring concourse: four legs meeting at the corners, at mine level. */
+    private void buildRingConcourse() {
+        for (int[] r : MapLayout.RING) {
+            arch.fillFlat(r[0], r[1], r[2], r[3], RIM_Y, Architect.Palette.of(
+                    Material.POLISHED_DEEPSLATE, Material.DEEPSLATE_TILES, 12,
+                    Material.CRACKED_DEEPSLATE_TILES, 5));
+            arch.clear(r[0], RIM_Y + 1, r[1], r[2], RIM_Y + 5, r[3]);
+
+            boolean alongX = (r[2] - r[0]) >= (r[3] - r[1]);
+            int lo = alongX ? r[0] : r[1];
+            int hi = alongX ? r[2] : r[3];
+
+            for (int a = lo; a <= hi; a++) {
+                // Side walls and a ceiling, so it reads as a cut passage rather than a
+                // trench with the void either side of it.
+                for (int dy = 1; dy <= 5; dy++) {
+                    setAxis(alongX, a, RIM_Y + dy, r[1], r[0], Material.DEEPSLATE_BRICKS);
+                    setAxis(alongX, a, RIM_Y + dy, r[3], r[2], Material.DEEPSLATE_BRICKS);
+                }
+                for (int b = (alongX ? r[1] : r[0]); b <= (alongX ? r[3] : r[2]); b++) {
+                    if (alongX) arch.set(a, RIM_Y + 6, b, Material.DEEPSLATE_TILES);
+                    else arch.set(b, RIM_Y + 6, a, Material.DEEPSLATE_TILES);
+                }
+                // Timbered supports on a rhythm, and a lantern between every other pair.
+                if ((a - lo) % 7 == 0) {
+                    for (int dy = 1; dy <= 5; dy++) {
+                        setAxis(alongX, a, RIM_Y + dy, r[1] + 1, r[0] + 1, Material.DARK_OAK_LOG);
+                        setAxis(alongX, a, RIM_Y + dy, r[3] - 1, r[2] - 1, Material.DARK_OAK_LOG);
+                    }
+                    int mid = alongX ? (r[1] + r[3]) / 2 : (r[0] + r[2]) / 2;
+                    if (alongX) arch.set(a, RIM_Y + 5, mid, Material.LANTERN);
+                    else arch.set(mid, RIM_Y + 5, a, Material.LANTERN);
+                }
+            }
+        }
+    }
+
+    /** Places at (a, y, bx) on an x-run, or (bz, y, a) on a z-run. */
+    private void setAxis(boolean alongX, int a, int y, int bx, int bz, Material mat) {
+        if (alongX) arch.set(a, y, bx, mat);
+        else arch.set(bz, y, a, mat);
+    }
+
+    /**
+     * One rank's shaft: a descending stair from the ward down to mine level, then a level
+     * tunnel out to the ring.
+     */
+    private void buildShaft(RankMineData.Def d) {
+        int[] s = d.shaft;
+        // Which axis runs OUTWARD from the hub, and which way along it.
+        boolean outwardIsZ = isNS(d.wall);
+        int step = outwardSign(d.wall);
+
+        int near = outwardIsZ ? (step > 0 ? s[1] : s[3]) : (step > 0 ? s[0] : s[2]);
+        int far = outwardIsZ ? (step > 0 ? s[3] : s[1]) : (step > 0 ? s[2] : s[0]);
+        int sideLo = outwardIsZ ? s[0] : s[1];
+        int sideHi = outwardIsZ ? s[2] : s[3];
+
+        BlockFace climbing = switch (d.wall) {          // the way you face walking back up
+            case "N" -> BlockFace.SOUTH;
+            case "S" -> BlockFace.NORTH;
+            case "E" -> BlockFace.WEST;
+            default -> BlockFace.EAST;
+        };
+
+        int length = Math.abs(far - near);
+        for (int i = 0; i <= length; i++) {
+            int out = near + step * i;
+            int floorY = Y - Math.min(i, SHAFT_DROP);
+            boolean descending = i < SHAFT_DROP;
+
+            for (int side = sideLo; side <= sideHi; side++) {
+                int x = outwardIsZ ? side : out;
+                int z = outwardIsZ ? out : side;
+                boolean edge = side == sideLo || side == sideHi;
+
+                if (descending) {
+                    arch.placeStair(x, floorY, z, Material.DEEPSLATE_BRICK_STAIRS, climbing, false);
+                } else {
+                    arch.set(x, floorY, z, Material.POLISHED_DEEPSLATE);
+                }
+                // A solid pad under the tread, or the stair hangs over the empty band.
+                arch.set(x, floorY - 1, z, Material.DEEPSLATE_BRICKS);
+
+                for (int dy = 1; dy <= 4; dy++) {
+                    arch.set(x, floorY + dy, z, edge ? Material.DEEPSLATE_BRICKS : Material.AIR);
+                }
+                arch.set(x, floorY + 5, z, Material.DEEPSLATE_TILES);
+            }
+            if (i % 8 == 0) {
+                int mx = outwardIsZ ? (sideLo + sideHi) / 2 : out;
+                int mz = outwardIsZ ? out : (sideLo + sideHi) / 2;
+                arch.set(mx, floorY + 4, mz, Material.LANTERN);
+            }
+        }
+
+        // Where it meets the ward floor, a mouth you can see from inside the ward.
+        int mouthX = outwardIsZ ? (sideLo + sideHi) / 2 : near;
+        int mouthZ = outwardIsZ ? near : (sideLo + sideHi) / 2;
+        hologramAt(mouthX + 0.5, Y + 1.6, mouthZ + 0.5,
+                "§e§lMINE " + d.rank, "§7Down the stair · " + length + " blocks");
     }
 
     // ==================================================================================
@@ -903,14 +1070,21 @@ public class WorldBuilder {
                 "§8§lINTAKE", "Welcome to", "Sky Prison.", "Head east.");
     }
 
+    // The two of them flank the intake walkway, so each has to turn to face it. They were
+    // both left on the default yaw, which pointed them the same way and left the
+    // Quartermaster addressing a wall.
+    //
+    // Yaw 0 looks towards +z and yaw 180 towards -z, so each one faces the centreline it
+    // stands beside, and a player walking in passes between them.
+
     public Location wardenNpcLocation() {
         int[] w = MapLayout.gate("INTAKE").ward();
-        return new Location(world, w[0] + 3.5, Y + 1, (w[1] + w[3]) / 2.0 - 3.5);
+        return new Location(world, w[0] + 3.5, Y + 1, (w[1] + w[3]) / 2.0 - 3.5, 0f, 0f);
     }
 
     public Location quartermasterNpcLocation() {
         int[] w = MapLayout.gate("INTAKE").ward();
-        return new Location(world, w[0] + 3.5, Y + 1, (w[1] + w[3]) / 2.0 + 3.5);
+        return new Location(world, w[0] + 3.5, Y + 1, (w[1] + w[3]) / 2.0 + 3.5, 180f, 0f);
     }
 
     // ==================================================================================

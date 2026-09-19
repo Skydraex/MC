@@ -117,6 +117,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         QuestNpcManager npcManager = new QuestNpcManager(this, worldBuilder);
 
         crateListener = new CrateListener(this);
+        for (String problem : CrateData.audit()) {
+            getLogger().warning("Crate loot table: " + problem);
+        }
         worldBuilder.getCrateLocations().forEach(crateListener::registerCrate);
         pvpManager = new PvpZoneManager(this);
         worldBuilder.getPvpZones().forEach(pvpManager::addZone);

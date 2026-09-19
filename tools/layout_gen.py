@@ -35,8 +35,14 @@ RANKS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 
 def mine_width(i):
-    """Mine A is 24x24, Mine Z is 60x60, linear in between."""
-    return 24 + int(i * (60 - 24) / (len(RANKS) - 1))
+    """Mine A is 24x24, Mine Z is 44x44, linear in between.
+
+    These used to run to 60. Every extra block of mine width is eight blocks of
+    ring circumference (four sides, two mines deep is not an option), and the
+    ring's radius is what a player walks every single trip. 44 is still four
+    times mine A's area and far more ore than a reset cycle consumes.
+    """
+    return 24 + int(i * (44 - 24) / (len(RANKS) - 1))
 
 
 WIDTHS = {r: mine_width(i) for i, r in enumerate(RANKS)}
@@ -89,10 +95,27 @@ assignment = {g: w for w, gates in WALL_GATES.items() for g in gates}
 MINE_ORE_BOTTOM = 56           # lowest ore layer
 MINE_ORE_TOP = 68              # highest ore layer
 MINE_RIM_Y = MINE_ORE_TOP + 2  # walkable rim around the pit; the lift lands here
-MINE_GRID_COLS = 6             # 26 mines tile into a 6 x 5 grid
-MINE_GRID_PITCH = MAX_W + 16   # widest mine plus a clear margin on every side
+
+# The mines are reached ON FOOT, which is what decides where they can sit.
+#
+# Each mine ward holds a spiral stair down to the mine level. At the bottom, a
+# shaft tunnel runs straight out from under the ward to a ring concourse, and
+# every mine opens off that ring. So the walk is: gate -> ward -> down the
+# stair -> out the shaft -> onto the ring -> into your mine. The cage lift
+# still works and goes straight there, for players who would rather not walk.
+#
+# The ring's radius is forced by arithmetic, not taste: a wall's mines have to
+# fit along that side of the ring, and the widest wall's run sets the size.
+RIM_W = 4                      # walkway wrapping each pit
+MINE_GAP = 4                   # dividing wall between neighbouring mines
+CONCOURSE_IN = 174             # ring concourse, inner edge, measured from origin
+CONCOURSE_W = 9                # wide enough to read as a thoroughfare, not a tunnel
+CONCOURSE_OUT = CONCOURSE_IN + CONCOURSE_W
+SHAFT_W = 7                    # clear width of a ward's shaft tunnel
+SHAFT_NEAR = 8                 # the shaft starts under the ward, where the stair lands
 
 regions, text_zones, gates, lifts = {}, {}, {}, {}
+ring = {}
 
 
 def _wall_axis_rects(wall, along_lo, along_hi, out_near, out_far):
@@ -110,12 +133,26 @@ def _wall_axis_rects(wall, along_lo, along_hi, out_near, out_far):
     return (HUB[0] - out_far, along_lo, HUB[0] - out_near, along_hi)
 
 
+# On which walls does "increasing along-axis" run RIGHT-to-LEFT for a player
+# standing in the hub looking out at that wall?
+#
+# Facing north, east is on your right, so +x reads left to right.
+# Facing south, east is on your LEFT, so +x reads right to left — and mine O
+# ended up on the right-hand side with U on the left. Same on the west wall.
+READS_BACKWARDS = {"N": False, "E": False, "S": True, "W": True}
+
+
 def gate_positions(wall):
-    """Centre coordinate, along the wall, of each gate on that wall."""
+    """Centre coordinate, along the wall, of each gate, in listed order.
+
+    Listed order is READING order, so A..G and O..U both run left to right for
+    the player looking at them.
+    """
     n = len(WALL_GATES[wall])
     span = (n - 1) * GATE_PITCH
     start = -span / 2
-    return [start + i * GATE_PITCH for i in range(n)]
+    pos = [start + i * GATE_PITCH for i in range(n)]
+    return list(reversed(pos)) if READS_BACKWARDS[wall] else pos
 
 
 def place_wall(wall):
@@ -221,34 +258,81 @@ def _place_grounds():
 _place_grounds()
 
 # ---------------------------------------------------------------------------
-# Mines: open pits on the underground level, one per rank, on a tidy grid.
-# Horizontal position does not affect walking time, because every mine is
-# reached by its ward's cage lift, so the grid is purely about not overlapping.
+# Mines: open pits on the underground level, ringing a walkable concourse.
+#
+# A mine belongs to the wall its gate is on, and sits on that side of the ring
+# in gate order, so "A to G are north, H to N are east" holds underground too.
+# Walking out of gate D and down its stair puts you on the ring directly
+# opposite mine D.
 # ---------------------------------------------------------------------------
+
+RING_NEAR = CONCOURSE_IN - HUB_HALF     # ring, as a distance out from the hub wall
+RING_FAR = CONCOURSE_OUT - HUB_HALF
+
+
+def _place_ring():
+    """The concourse: a square ring at mine level joining every mine.
+
+    The north and south legs run the full width; the east and west legs stop
+    short of them, so the four legs abut at the corners without overlapping.
+    """
+    for wall in WALLS:
+        limit = CONCOURSE_OUT if wall in ("N", "S") else CONCOURSE_IN
+        r = _wall_axis_rects(wall, -limit, limit, RING_NEAR, RING_FAR)
+        regions[f"ring_{wall}"] = r
+        ring[wall] = r
+
+
+def _mine_footprint(rank):
+    """Along-the-ring space one mine consumes: its pit, its rim, its party wall."""
+    return WIDTHS[rank] + 2 * RIM_W + MINE_GAP
 
 
 def _place_mines():
-    for i, rank in enumerate(RANKS):
-        col, row = i % MINE_GRID_COLS, i // MINE_GRID_COLS
-        cx = (col - (MINE_GRID_COLS - 1) / 2) * MINE_GRID_PITCH
-        cz = (row - 2) * MINE_GRID_PITCH
-        half = WIDTHS[rank] / 2
-        pit = (cx - half, cz - half, cx + half, cz + half)
-        regions[f"mine_{rank}"] = pit
+    for wall in WALLS:
+        # Laid in along-axis order, not listed order, so each mine sits
+        # directly out from its own gate even on the walls that read backwards.
+        on_wall = sorted((g for g in WALL_GATES[wall] if g in WIDTHS),
+                         key=lambda g: gates[g]["centre"])
+        foots = [_mine_footprint(r) for r in on_wall]
+        cursor = -sum(foots) / 2
+        for rank, foot in zip(on_wall, foots):
+            centre = cursor + foot / 2
+            cursor += foot
+            w = WIDTHS[rank]
 
-        # The rim walkway wraps the pit; the lift lands on its north edge.
-        rim = (pit[0] - 4, pit[1] - 4, pit[2] + 4, pit[3] + 4)
-        regions[f"rim_{rank}"] = rim
-        lifts[rank] = {
-            "ward": f"ward_{rank}",
-            "landing": (cx, MINE_RIM_Y, pit[1] - 2),
-            "pit": pit,
-            "rim": rim,
-            "ore_bottom": MINE_ORE_BOTTOM,
-            "ore_top": MINE_ORE_TOP,
-        }
+            rim = _wall_axis_rects(wall, centre - (w / 2 + RIM_W), centre + (w / 2 + RIM_W),
+                                   RING_FAR, RING_FAR + w + 2 * RIM_W)
+            pit = _wall_axis_rects(wall, centre - w / 2, centre + w / 2,
+                                   RING_FAR + RIM_W, RING_FAR + RIM_W + w)
+            regions[f"mine_{rank}"] = pit
+            regions[f"rim_{rank}"] = rim
+
+            # Where you arrive, on foot or by cage: the rim strip facing the
+            # ring, two blocks out, centred on the mine. Always over solid rim,
+            # never over the hole.
+            entry = _wall_axis_rects(wall, centre - 0.5, centre + 0.5,
+                                     RING_FAR + 1, RING_FAR + 3)
+            landing = ((entry[0] + entry[2]) / 2, MINE_RIM_Y, (entry[1] + entry[3]) / 2)
+
+            # The shaft tunnel: from under the ward out to the ring, at mine
+            # level, on the GATE's centreline rather than the mine's.
+            regions[f"shaft_{rank}"] = _wall_axis_rects(
+                wall, gates[rank]["centre"] - SHAFT_W / 2, gates[rank]["centre"] + SHAFT_W / 2,
+                SHAFT_NEAR, RING_NEAR)
+
+            lifts[rank] = {
+                "ward": f"ward_{rank}",
+                "landing": landing,
+                "pit": pit,
+                "rim": rim,
+                "mine_centre": centre,
+                "ore_bottom": MINE_ORE_BOTTOM,
+                "ore_top": MINE_ORE_TOP,
+            }
 
 
+_place_ring()
 _place_mines()
 
 # ---------------------------------------------------------------------------
@@ -272,7 +356,7 @@ def _same_feature(a, b):
 
 
 def _is_underground(name):
-    return name.startswith(("mine_", "rim_"))
+    return name.startswith(("mine_", "rim_", "ring_", "shaft_"))
 
 
 def _find_overlaps():
@@ -301,6 +385,92 @@ bad = _find_overlaps()
 tbad = _find_text_overlaps()
 
 
+# ---------------------------------------------------------------------------
+# Doorways
+#
+# Every wall this map builds used to have its opening carved by hand, by
+# whichever method happened to build that wall, with a hand-picked edge and
+# width. Miss one and the area behind it is sealed — which is how all thirty
+# wards, the fishing lobby, the green's perimeter and all three grounds ended
+# up walled off in three separate rounds of the same bug.
+#
+# So openings are derived here instead, from the geometry that is already
+# validated, and WorldBuilder cuts every one of them after it has finished
+# building. Add a region and its doors come with it.
+# ---------------------------------------------------------------------------
+
+MIN_DOOR = max(3, GATE_W // 3)
+DOOR_MAX = GATE_W
+
+
+def _door_between(a, b):
+    """The box to cut where two abutting rectangles meet, or None."""
+    a, b = norm(a), norm(b)
+    xo_lo, xo_hi = max(a[0], b[0]), min(a[2], b[2])
+    zo_lo, zo_hi = max(a[1], b[1]), min(a[3], b[3])
+    xo, zo = xo_hi - xo_lo, zo_hi - zo_lo
+    if xo < 0 or zo < 0:
+        return None          # nowhere near each other
+    if xo > 0 and zo > 0:
+        return None          # already open to each other; no wall between them
+    if zo == 0 and xo >= MIN_DOOR:
+        c, half = (xo_lo + xo_hi) / 2, min(DOOR_MAX, xo - 1) / 2
+        return (c - half, zo_lo - 2, c + half, zo_lo + 2)
+    if xo == 0 and zo >= MIN_DOOR:
+        c, half = (zo_lo + zo_hi) / 2, min(DOOR_MAX, zo - 1) / 2
+        return (xo_lo - 2, c - half, xo_lo + 2, c + half)
+    return None
+
+
+# Pairs that must be joined but do not share a feature name.
+_EXTRA_LINKS = {
+    ("room_FISHING", "room_GREEN"),
+    ("room_GREEN", "corridor_PONDSLINK"),
+    ("room_GREEN", "corridor_LOGGINGLINK"),
+    ("room_GREEN", "corridor_FARMLINK"),
+    ("corridor_PONDSLINK", "room_PONDS"),
+    ("corridor_LOGGINGLINK", "room_LOGGING"),
+    ("corridor_FARMLINK", "room_FARM"),
+    ("corridor_STARTERLINK", "room_STARTER"),
+    ("corridor_STARTERLINK", "ward_INTAKE"),
+}
+
+
+def _should_connect(a, b):
+    ta, na = a.split("_", 1)
+    tb, nb = b.split("_", 1)
+    if na == nb:
+        return True                                   # corridor -> ward -> room
+    if "hub" in (ta, tb):
+        return {ta, tb} == {"hub", "corridor"}        # the hub joins its corridors
+    if {ta, tb} <= {"ring", "rim", "shaft"}:
+        return True                                   # the whole mine level
+    return (a, b) in _EXTRA_LINKS or (b, a) in _EXTRA_LINKS
+
+
+def _compute_doorways():
+    allr = dict(regions)
+    allr["hub_HUB"] = HUB
+    names = sorted(allr)
+    out = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if a.startswith("mine_") or b.startswith("mine_"):
+                continue                              # the pit is a hole, not a room
+            if _is_underground(a) != _is_underground(b):
+                continue
+            if not _should_connect(a, b):
+                continue
+            d = _door_between(allr[a], allr[b])
+            if d:
+                out.append({"a": a, "b": b, "rect": list(d),
+                            "level": "MINE" if _is_underground(a) else "HUB"})
+    return out
+
+
+doorways = _compute_doorways()
+
+
 def get_layout():
     """The whole validated layout as plain dicts — consumed by gen_java.py
     (which bakes it into Java) and map_check.py (which re-validates it), so the
@@ -312,6 +482,13 @@ def get_layout():
         "text_zones": {k: list(v) for k, v in text_zones.items()},
         "gates": gates,
         "lifts": lifts,
+        "ring": {k: list(v) for k, v in ring.items()},
+        "concourse_in": CONCOURSE_IN,
+        "concourse_out": CONCOURSE_OUT,
+        "shaft_w": SHAFT_W,
+        "shaft_near": SHAFT_NEAR,
+        "rim_w": RIM_W,
+        "doorways": doorways,
         "assignment": assignment,
         "widths": WIDTHS,
         "wall_gates": WALL_GATES,
@@ -335,6 +512,14 @@ if __name__ == "__main__":
         print(f"  {w}: {WALL_GATES[w]}")
     print(f"Surface regions: {sum(1 for k in regions if not _is_underground(k))}")
     print(f"Mine level: {len(RANKS)} pits, ore y{MINE_ORE_BOTTOM}-{MINE_ORE_TOP}, rim y{MINE_RIM_Y}")
+    print(f"Ring concourse: radius {CONCOURSE_IN}-{CONCOURSE_OUT}, "
+          f"shaft walk {CONCOURSE_IN - HUB_HALF - SHAFT_NEAR} blocks from each ward")
+    for w in WALLS:
+        on_wall = [g for g in WALL_GATES[w] if g in WIDTHS]
+        span = sum(_mine_footprint(r) for r in on_wall)
+        print(f"  {w}: {len(on_wall)} mines, ring run {span} "
+              f"(half {span / 2:.0f} must be <= {CONCOURSE_OUT})")
+    print(f"Doorways: {len(doorways)}")
     print(f"Overlap violations: {len(bad)}")
     for b in bad[:20]:
         print("  OVERLAP:", b)

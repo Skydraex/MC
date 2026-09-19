@@ -73,6 +73,23 @@ public class AdminCommands implements CommandExecutor {
                 for (int i = 0; i < n; i++) plugin.crates().giveKey(t, crate);
                 s.sendMessage("§aGave " + t.getName() + " " + n + "x " + crate + " key.");
             }
+            case "givegear" -> {
+                Player t = target(s, a, 1);
+                if (t == null || a.length < 3) {
+                    s.sendMessage("\u00a7cUsage: /padmin givegear <player> <item>");
+                    s.sendMessage("\u00a77Items: \u00a7f" + String.join(", ", CrateData.GEAR_IDS));
+                    return true;
+                }
+                String id = a[2].toLowerCase();
+                org.bukkit.inventory.ItemStack gear = CrateData.buildNamedGear(id);
+                if (gear == null) {
+                    s.sendMessage("\u00a7cUnknown item. Options: " + String.join(", ", CrateData.GEAR_IDS));
+                    return true;
+                }
+                t.getInventory().addItem(gear);
+                s.sendMessage("\u00a7aGave " + t.getName() + " a " + id + ".");
+                if (!t.equals(s)) t.sendMessage("\u00a77An admin handed you a piece of gear.");
+            }
             case "fishlevel" -> {
                 Player t = target(s, a, 1);
                 if (t == null || a.length < 3) { usage(s); return true; }
@@ -121,10 +138,11 @@ public class AdminCommands implements CommandExecutor {
     }
 
     private void usage(CommandSender s) {
-        s.sendMessage("§6/prisonadmin §7<setrank|givetokens|givekey|fishlevel|resetplayer|rebuild>");
+        s.sendMessage("§6/prisonadmin §7<setrank|givetokens|givekey|givegear|fishlevel|resetplayer|rebuild>");
         s.sendMessage("§7  setrank <player> <A-Z|FREE>");
         s.sendMessage("§7  givetokens <player> <amount>");
         s.sendMessage("§7  givekey <player> <miner|angler|vote> [count]");
+        s.sendMessage("§7  givegear <player> <item> §8— " + String.join(", ", CrateData.GEAR_IDS));
         s.sendMessage("§7  fishlevel <player> <1-60>");
         s.sendMessage("§7  resetplayer <player>");
         s.sendMessage("§7  rebuild");

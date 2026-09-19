@@ -137,29 +137,58 @@ is the one staff abuse that cannot be undone. `/padmin` shows only what the call
 
 ## Where things stand
 
-Everything described above is on `main` and CI-green. **None of it has been verified in
-game** beyond the startup audit — the sessions that wrote it could not reach a Minecraft
-server. That is precisely what a local session with the bot is for.
+**`main` is at `8821258`, CI-green. Start by reading the Notion changelog entry dated
+19 Sep (evening) — it is current.**
 
-**Worth checking first, in rough order of how likely I think they are to be wrong:**
+### State as of the end of 19 Sep
 
-1. **The mines.** The ore band dropped to y30–42 and caverns are 30 blocks tall with planted
-   terraces and landscaped plots. Biggest visual change, least verified.
-2. **The plateau, cliffs and moat.** Generator change. If the prison is sunk into or floating
-   above the terrain it will be obvious.
-3. **The cell block.** Third arrangement — an atrium with six galleries, 108 cells. The stair
-   has been wrong twice before.
-4. **The gatehouse and causeway** on the west wall.
-5. **Signs.** Should now be ~200 placed with 0 impossible. Check the console line.
+ClaudeBot walked hub spawn → Mine A on foot and never reached the ore. Eight bugs came out
+of that one walk; all are fixed and re-audited in-world. The audit's remaining categories —
+doorways, shafts, ring, spawns, lift pads, cells, bedrock, lighting, hub walkways and mine
+access — all came back clean on the last boot.
 
-**Known outstanding:**
+**The owner has NOT yet taken the `8821258` jar.** Their server is running the build from
+`e5f07a0`, whose world is correct but whose audit still reports four false spoke findings
+(it called a wall sign an obstruction). First thing tomorrow: they do the stop → replace jar
+→ delete `prison` → delete `world-built.marker` → start cycle, and the audit should read
+`Startup audit: PASS`.
+
+### The one question that cannot be answered from here
+
+**98 signs are placed on free-standing posts rather than on walls.** The audit found four of
+them — the watchtower directory boards — and they were exactly what you would fear: signs on
+fence posts in the middle of the plaza walkway. Those four are fixed. Whether the other 98
+are the same kind of mistake, or are fine, needs somebody to look. This is ClaudeBot's next
+job and it is the highest-value thing it can do.
+
+Second: whether 121 hanging lanterns in the widest pit reads as lighting or as clutter.
+
+### Known outstanding
 
 - The mines still do not match the owner's reference builds. Going further needs horizontal
   room, which means widening `MINE_GAP` in `layout_gen.py` — that pushes the ring out and
   lengthens every trip. The owner accepted a 160-block shaft for the current plot size;
   anything more needs asking.
-- The Notion page is stale (see below).
+- The cell block is **84** cells, not 108. The wing lost ten blocks on each axis when it
+  turned out to be sitting inside the perimeter walkway. If more cells are wanted, a seventh
+  gallery is the cheap way back — the watchtower still tops the silhouette at seven.
 - No in-game verification of the command surface beyond `SystemAudit`'s static checks.
+
+### A cloud session cannot compile this project
+
+Paper's Maven repo returns 403 through the agent proxy, so `mvn compile` cannot resolve
+`paper-api` and there are no cached jars. **CI is the only compiler.** Two consequences:
+
+- Every material name is an assumption until CI runs. `Material.CHAIN` does not exist in this
+  Paper's enum and broke a build; `POLISHED_DEEPSLATE_BRICKS` did the same earlier. Look up
+  anything you are not certain of with `Material.matchMaterial(name)` and a fallback, and log
+  which one was chosen.
+- Before pushing, at minimum check brace/paren balance across the files you touched, and
+  re-read the diff. A red CI costs a round trip.
+
+**Match the CI run by `head_sha` against local HEAD.** Never take "the newest run" — polling
+the run list straight after a push picks up the *previous* commit's run still in progress,
+which once sent the owner a stale jar and cost a full rebuild cycle.
 
 ---
 
@@ -168,9 +197,9 @@ server. That is precisely what a local session with the bot is for.
 The project page is **MC Server**:
 https://app.notion.com/p/3df49cce9c22806bb296d57141f12567
 
-**Updated 19 Sep 2026** to match this build. It now carries the current map specification,
-the staff ladder, the removal of tokens and of Explosive/Auto-Smelt, the audits, and a
-section on ClaudeBot mirroring the one above. Keep it current as things change.
+**Updated 19 Sep 2026, evening** and current. It carries the map specification, the staff
+ladder, the audits, a section on ClaudeBot mirroring the one above, and a changelog whose
+last entry is the walkability pass described here. Keep it current as things change.
 
 If the Notion connector is not available in this session, the owner can enable it in
 claude.ai connector settings. Ask before editing the page — it is theirs.
@@ -281,6 +310,19 @@ Two notes on the hub leg, both of which cost the last run an hour:
 If you stop somewhere that these coordinates say should be open, that IS a finding — report
 the exact block. If you stop somewhere outside them, you wandered off the path; get back on
 the centreline and continue.
+
+### Set your game mode, and never break a block to identify one
+
+- Walking a route: `/gamemode adventure ClaudeBot`. You can walk and fall; you cannot break
+  anything.
+- Flying and looking: `/gamemode spectator ClaudeBot`. You can go anywhere and touch nothing.
+
+**Never survival, never creative.** On 19 Sep the bot broke blocks while probing what was in
+front of it, and they stayed broken. That is not a gap in the anti-grief:
+`ProtectionListener.bypasses()` exempts `prison.admin` and you are OP, so protection does not
+apply to you at all. Every probe you mine is a permanent hole in the owner's live world.
+
+To identify a block, *read* it with the block-data tool. Same answer, wall stays up.
 
 ### Report, do not fix
 

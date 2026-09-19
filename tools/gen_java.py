@@ -145,6 +145,12 @@ public class MapLayout {{
 {chr(10).join(ring_lines)}
     }};
 
+    /**
+     * Everything a player is allowed to walk on, plus a margin. Outside this is the
+     * countryside: visible, deliberately, and sealed off at the boundary.
+     */
+    public static final int[] COMPOUND = {arr(layout["compound"])};
+
     public static final int CONCOURSE_IN = {layout["concourse_in"]};
     public static final int CONCOURSE_OUT = {layout["concourse_out"]};
     public static final int SHAFT_W = {layout["shaft_w"]};

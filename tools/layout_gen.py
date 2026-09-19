@@ -471,6 +471,26 @@ def _compute_doorways():
 doorways = _compute_doorways()
 
 
+def _compound_bounds(margin=18):
+    """A rectangle enclosing everything walkable on the surface.
+
+    The prison is meant to stand in open country you can SEE but not reach. With
+    nothing to stop you, the countryside generator's ground runs right up to the
+    build and you can simply walk away across it.
+    """
+    xs, zs = [], []
+    for name, r in regions.items():
+        if _is_underground(name):
+            continue
+        n = norm(r)
+        xs += [n[0], n[2]]
+        zs += [n[1], n[3]]
+    return (min(xs) - margin, min(zs) - margin, max(xs) + margin, max(zs) + margin)
+
+
+COMPOUND = _compound_bounds()
+
+
 def get_layout():
     """The whole validated layout as plain dicts — consumed by gen_java.py
     (which bakes it into Java) and map_check.py (which re-validates it), so the
@@ -489,6 +509,7 @@ def get_layout():
         "shaft_near": SHAFT_NEAR,
         "rim_w": RIM_W,
         "doorways": doorways,
+        "compound": list(COMPOUND),
         "assignment": assignment,
         "widths": WIDTHS,
         "wall_gates": WALL_GATES,
@@ -520,6 +541,8 @@ if __name__ == "__main__":
         print(f"  {w}: {len(on_wall)} mines, ring run {span} "
               f"(half {span / 2:.0f} must be <= {CONCOURSE_OUT})")
     print(f"Doorways: {len(doorways)}")
+    print(f"Compound bounds: {[int(v) for v in COMPOUND]} "
+          f"({int(COMPOUND[2] - COMPOUND[0])} x {int(COMPOUND[3] - COMPOUND[1])})")
     print(f"Overlap violations: {len(bad)}")
     for b in bad[:20]:
         print("  OVERLAP:", b)

@@ -95,6 +95,12 @@ public class MapLayout {
         new int[]{-183,-174,-174,174},
     };
 
+    /**
+     * Everything a player is allowed to walk on, plus a margin. Outside this is the
+     * countryside: visible, deliberately, and sealed off at the boundary.
+     */
+    public static final int[] COMPOUND = {-186,-232,154,144};
+
     public static final int CONCOURSE_IN = 174;
     public static final int CONCOURSE_OUT = 183;
     public static final int SHAFT_W = 7;

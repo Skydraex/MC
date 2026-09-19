@@ -30,12 +30,33 @@ java -version
 You want `version "25"` or higher. If you had an older Java installed, the installer may not
 have replaced it on PATH; uninstall the old one or fix PATH before continuing.
 
-### A2. Make a server folder
+### A2. Make the server folder
 
-Anywhere you like, e.g. `C:\prison-server`. Inside it:
+1. Open **File Explorer**.
+2. Click **This PC**, then double-click **Local Disk (C:)**.
+3. Right-click in the empty space → **New** → **Folder**.
+4. Name it `prison-server` and press Enter.
 
-1. Download **Paper 26.2** from https://papermc.io/downloads — put `paper.jar` in that folder.
-2. Make a file called `start.bat` containing:
+You now have `C:\prison-server`. Leave the window open.
+
+### A3. Download Paper
+
+1. Go to https://papermc.io/downloads/paper
+2. The newest version is selected already. Click the big download button.
+3. You get a file named something like `paper-26.2-124.jar`.
+4. Move it into `C:\prison-server`.
+5. Rename it to exactly `paper.jar`.
+
+   *If you cannot see the `.jar` on the end:* in File Explorer click **View** →
+   tick **File name extensions**. Without that, renaming can leave you with
+   `paper.jar.jar`, which will not run.
+
+### A4. Make the start file
+
+This is the step people most often get wrong, because Notepad silently adds `.txt`.
+
+1. Open **Notepad** (press the Windows key, type `notepad`, Enter).
+2. Paste exactly this:
 
    ```bat
    @echo off
@@ -43,46 +64,82 @@ Anywhere you like, e.g. `C:\prison-server`. Inside it:
    pause
    ```
 
-   2–4 GB is right for this build. First boot generates about 1.1 million blocks.
+3. Press **Ctrl+S**.
+4. Navigate to `C:\prison-server`.
+5. **Change "Save as type" from "Text Documents (*.txt)" to "All Files (*.*)".**
+   Miss this and you get `start.bat.txt`, which does nothing when you click it.
+6. In the File name box type `start.bat`
+7. Click **Save**.
 
-3. Double-click `start.bat`. It will stop and tell you to accept the EULA.
-4. Open `eula.txt`, change `eula=false` to `eula=true`, save.
-5. Run `start.bat` again, let it finish, then type `stop` in the console.
+Back in File Explorer you should see `start.bat` with a gear/cog icon, **not** a
+notepad icon. If it looks like a notepad file, repeat from step 3.
 
-You now have a `plugins` folder.
+### A5. First run — accepting the EULA
 
-### A3. Plugins
+1. Double-click `start.bat`.
+2. A black window opens, runs for a few seconds, and stops with a message about the EULA.
+3. Press a key to close it.
+4. A new file `eula.txt` has appeared in `C:\prison-server`. Open it in Notepad.
+5. Find the line `eula=false` and change it to `eula=true`.
+6. Save (Ctrl+S) and close.
 
-Into `C:\prison-server\plugins`:
+### A6. Second run — generating the server
 
-| Plugin | Where | Why |
-|---|---|---|
-| **Vault** | https://www.spigotmc.org/resources/vault.34315/ | the economy bridge — required |
-| **EssentialsX** | https://essentialsx.net/downloads.html | the actual economy — required |
-| **PrisonPlugin.jar** | see below | this server |
-| **ViaVersion** | https://hangar.papermc.io/ViaVersion/ViaVersion | only needed for Part B |
-| **ViaBackwards** | https://hangar.papermc.io/ViaVersion/ViaBackwards | only needed for Part B |
+1. Double-click `start.bat` again.
+2. This time it keeps going. Wait for it to say `Done` — the first time takes a minute or two.
+3. Type `stop` into the black window and press Enter.
+4. Wait for it to close down, then press a key.
 
-**Getting PrisonPlugin.jar:** go to
-https://github.com/Skydraex/MC/actions — click the newest run with a green tick →
-scroll to **Artifacts** → download **PrisonPlugin** → unzip → `PrisonPlugin.jar`.
+You now have a `plugins` folder inside `C:\prison-server`.
 
-### A4. First run
+### A7. Download the plugins
 
-Start the server. On the first boot it builds the world — the console will say so and it
-takes a little while. Watch for this near the end:
+You need three files to start with. Put all of them in `C:\prison-server\plugins`.
 
-```
-Startup audit: PASS - world and plugin both check out.
-```
+**Vault** (the economy bridge)
+1. Go to https://www.spigotmc.org/resources/vault.34315/
+2. Click **Download Now**.
 
-If it says `Startup audit: N problem(s) found` instead, the lines under it say exactly what
-is wrong and where. Send me those lines.
+**EssentialsX** (the actual economy)
+1. Go to https://essentialsx.net/downloads.html
+2. Download **EssentialsX** (the first one). You do not need the extra modules.
 
-Join at `localhost`. In game, `/padmin audit` re-runs the same check on demand.
+**PrisonPlugin** (this server)
+1. Go to https://github.com/Skydraex/MC/actions
+2. Click the newest run that has a **green tick**.
+3. Scroll to the bottom, to **Artifacts**.
+4. Click **PrisonPlugin** to download a `.zip`.
+5. Right-click the zip → **Extract All** → you get `PrisonPlugin.jar`.
 
-**To rebuild the world later:** stop the server, delete the `prison` folder, start it again.
-That is all — no command needed.
+Move all three `.jar` files into `C:\prison-server\plugins`.
+
+### A8. Build the world
+
+1. Double-click `start.bat`.
+2. This boot builds the whole prison — about 1.1 million blocks. It will say so and take
+   noticeably longer than the last one. Let it finish.
+3. Near the end, look for this line:
+
+   ```
+   Startup audit: PASS - world and plugin both check out.
+   ```
+
+   If it instead says `Startup audit: N problem(s) found`, the lines directly underneath
+   name exactly what is wrong and where. Copy those lines and send them to me.
+
+4. Leave the server running.
+
+### A9. Join
+
+1. Open Minecraft Java Edition.
+2. **Multiplayer** → **Add Server**.
+3. Server Address: `localhost`
+4. Save, then join.
+
+In game, type `/padmin audit` to run the same check again whenever you want.
+
+**To rebuild the world from scratch later:** stop the server, delete the `prison` folder
+inside `C:\prison-server`, start it again. Nothing else needed.
 
 ---
 

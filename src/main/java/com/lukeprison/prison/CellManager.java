@@ -28,7 +28,17 @@ public class CellManager implements Listener {
         }
     }
 
-    private static final double CLAIM_COST = 25_000;
+    /**
+     * A cell's price depends on which tier it is on, not a flat fee.
+     *
+     * Ground-floor cells are deliberately the cheapest thing on the map: they are small, but they
+     * are steps from the door, which is what matters when players run chest shops out of them.
+     * Upper tiers are larger and cost progressively more, so climbing is a reward rather than
+     * simply a better deal.
+     */
+    private double claimCost(int cell) {
+        return WorldBuilder.cellPriceForTier(plugin.builder().tierOfCell(cell));
+    }
     private static final double RENEW_COST = 5_000;
 
     /** " (Nh left)" / " (EXPIRED)" appended to /cell info, or blank if unowned. */
@@ -112,11 +122,13 @@ public class CellManager implements Listener {
                         p.sendMessage("§cCell #" + cell.number() + " is already taken.");
                         return true;
                     }
-                    if (!plugin.economy().has(p, CLAIM_COST)) {
-                        p.sendMessage("§cA cell costs §6$" + String.format("%,.0f", CLAIM_COST) + "§c.");
+                    double cost = claimCost(cell.number());
+                    if (!plugin.economy().has(p, cost)) {
+                        p.sendMessage("§cThis cell costs §6$" + String.format("%,.0f", cost)
+                                + "§c. Ground-floor cells are the cheapest.");
                         return true;
                     }
-                    plugin.economy().withdrawPlayer(p, CLAIM_COST);
+                    plugin.economy().withdrawPlayer(p, cost);
                     plugin.ranks().claimCell(p, cell.number());
                     p.sendMessage("§aCell #" + cell.number() + " is yours for 72 hours. §7/cell home §ato return, §7/cell renew §abefore it expires.");
                     p.playSound(p.getLocation(), Sound.BLOCK_IRON_DOOR_CLOSE, 1f, 1f);
@@ -162,7 +174,8 @@ public class CellManager implements Listener {
                     p.sendMessage("§aCell #" + n + " renewed for another 72 hours.");
                 }
                 default -> {
-                    p.sendMessage("§6/cell §7claim §8— rent the cell you're standing in for 72h ($" + String.format("%,.0f", CLAIM_COST) + ")");
+                    p.sendMessage("§6/cell §7claim §8— rent the cell you're standing in for 72h");
+                    p.sendMessage("§8   price rises with the tier; the ground floor is cheapest");
                     p.sendMessage("§6/cell §7home §8— teleport to your cell");
                     p.sendMessage("§6/cell §7renew §8— extend your rental by 72h ($" + String.format("%,.0f", RENEW_COST) + ")");
                     p.sendMessage("§6/cell §7info §8— who owns this cell, and time left");

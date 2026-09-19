@@ -66,7 +66,7 @@ public class WorldBuilder {
     private static final int RIM_Y = MapLayout.MINE_RIM_Y;
     private static final int PIT_CEILING = RIM_Y + 14;
 
-    private static final int CELL_TIERS = 3, CELL_TIER_H = 7;
+    private static final int CELL_TIER_H = 5;
 
     private final Plugin plugin;
     private final World world;
@@ -421,32 +421,70 @@ public class WorldBuilder {
     }
 
     // ---- Cell wing ---------------------------------------------------------------
+    //
+    // 100 cells, because the server is sized for 100 players and everyone should be able to
+    // claim one. That does not fit a 36x36 building at three tiers, so the wing is larger than
+    // the other quadrant buildings and as tall as it needs to be — a cell block tower is the
+    // right look for a prison anyway.
+    //
+    // Lower tiers are small, cheap and right by the door, which is what most players actually
+    // want: on a classic prison server the ground floor is prime real estate because that is
+    // where people run chest shops. Upper tiers are bigger and dearer — a reward for sticking
+    // around, not a straight upgrade.
 
-    private int[] cellWing() { return quadrant(-1, -1); }
+    private static final int CELL_IN = 10, CELL_OUT = 54;
+    private static final int TARGET_CELLS = 100;
+    private static final int CELL_CORRIDOR = 3;
+    private static final int STAIR_BAY = 6;          // width of the staircase bay
+    private static final int[] TIER_SIZES = {6, 7, 8, 9, 10, 10, 12};
 
-    private int cellSizeForTier(int tier) { return 6 + tier * 2; }   // 6x6, 8x8, 10x10
+    private int[] cellWing() {
+        return new int[]{-CELL_OUT, -CELL_OUT, -CELL_IN, -CELL_IN};
+    }
 
-    /** Cell origins for one tier: two rows either side of a central corridor, stair bay skipped. */
+    private int cellSizeForTier(int tier) { return TIER_SIZES[Math.min(tier, TIER_SIZES.length - 1)]; }
+
+    /**
+     * Claim price for a tier. Ground floor is deliberately the cheapest thing on the map so a new
+     * player can afford somewhere to put a shop chest; the top tiers cost real money.
+     */
+    public static double cellPriceForTier(int tier) {
+        return 10_000 * Math.pow(2.0, tier);
+    }
+
+    /** Cell origins for one tier: rows of cells either side of corridors, stair bay excluded. */
     private List<int[]> cellSpots(int[] r, int size) {
         List<int[]> out = new ArrayList<>();
-        int corridor = 6;
-        int usable = (r[2] - r[0]) - 4;
-        int perRow = Math.max(1, usable / size);
-        int stairCol = perRow / 2;
-        for (int col = 0; col < perRow; col++) {
-            if (col == stairCol) continue;
-            int x = r[0] + 2 + col * size;
-            out.add(new int[]{x, r[1] + 2});
-            out.add(new int[]{x, r[1] + 2 + size + corridor});
+        int x0 = r[0] + 1 + STAIR_BAY;                  // cells start past the staircase
+        int usableW = (r[2] - 1) - x0;
+        int usableD = (r[3] - 1) - (r[1] + 1);
+        int cols = Math.max(1, usableW / size);
+        int rows = Math.max(1, (usableD + CELL_CORRIDOR) / (size + CELL_CORRIDOR));
+        for (int row = 0; row < rows; row++) {
+            int z = r[1] + 1 + row * (size + CELL_CORRIDOR);
+            for (int col = 0; col < cols; col++) {
+                out.add(new int[]{x0 + col * size, z});
+            }
         }
         return out;
+    }
+
+    /** How many tiers it takes to reach TARGET_CELLS, given each tier's cell size. */
+    private int tierCount() {
+        int[] r = cellWing();
+        int total = 0, tiers = 0;
+        while (total < TARGET_CELLS && tiers < 12) {
+            total += cellSpots(r, cellSizeForTier(tiers)).size();
+            tiers++;
+        }
+        return tiers;
     }
 
     private void registerCellRects() {
         cellRects.clear();
         int[] r = cellWing();
         int n = 1;
-        for (int tier = 0; tier < CELL_TIERS; tier++) {
+        for (int tier = 0; tier < tierCount(); tier++) {
             int y = Y + tier * CELL_TIER_H;
             int size = cellSizeForTier(tier);
             for (int[] s : cellSpots(r, size)) {
@@ -457,60 +495,114 @@ public class WorldBuilder {
         }
     }
 
+    /** Which tier a cell number sits on — used for its price. */
+    public int tierOfCell(int number) {
+        int[] r = cellWing();
+        int n = 1;
+        for (int tier = 0; tier < tierCount(); tier++) {
+            int count = cellSpots(r, cellSizeForTier(tier)).size();
+            if (number < n + count) return tier;
+            n += count;
+        }
+        return 0;
+    }
+
     private void buildCellWing() {
         int[] r = cellWing();
-        int height = CELL_TIERS * CELL_TIER_H + 4;
+        int tiers = tierCount();
+        int height = tiers * CELL_TIER_H + 4;
+
         quadrantShell(r, height, Architect.CELL_STONE, Material.POLISHED_DEEPSLATE, Material.DEEPSLATE_TILES);
         int[] door = quadrantDoor(r);
 
-        int n = 1;
-        for (int tier = 0; tier < CELL_TIERS; tier++) {
+        // The staircase bay runs the full depth of the wing along its west edge. Every tier floor
+        // leaves it open, so the stair climbs through all of them without being sealed in — which
+        // is exactly what went wrong before, when each tier punched a hole and the next tier's
+        // floor filled it straight back in.
+        int bayX1 = r[0] + 1, bayX2 = r[0] + STAIR_BAY;
+
+        // 1. All tier floors first, bay left open.
+        for (int tier = 1; tier < tiers; tier++) {
             int y = Y + tier * CELL_TIER_H;
-            int size = cellSizeForTier(tier);
-            int usableW = (r[2] - r[0]) - 4;
-            int stairColX = r[0] + 2 + ((Math.max(1, usableW / size)) / 2) * size;
-            if (tier > 0) {
-                for (int x = r[0] + 1; x <= r[2] - 1; x++) {
-                    for (int z = r[1] + 1; z <= r[3] - 1; z++) {
-                        // Leave the stairwell open. The previous version filled the whole floor,
-                        // re-sealing the hole the tier below had just punched for its staircase —
-                        // which is why the stairs went nowhere.
-                        boolean stairwell = x >= stairColX - 2 && x <= stairColX + 5
-                                && z >= r[1] + 2 && z <= r[1] + 3 + CELL_TIER_H + 1;
-                        if (stairwell) continue;
-                        arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
-                    }
+            for (int x = r[0] + 1; x <= r[2] - 1; x++) {
+                for (int z = r[1] + 1; z <= r[3] - 1; z++) {
+                    if (x >= bayX1 && x <= bayX2) continue;
+                    arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
                 }
             }
-            for (int[] s : cellSpots(r, size)) buildCell(s[0], y, s[1], size, n++);
+        }
 
-            if (tier < CELL_TIERS - 1) buildCellStair(stairColX, y, r[1] + 3);
-            // Corridor lighting: without it the upper tiers are pitch dark.
-            for (int x = r[0] + 4; x <= r[2] - 4; x += 7) {
-                arch.set(x, y + CELL_TIER_H - 2, r[1] + 2 + size + 2, Material.SEA_LANTERN);
+        // 2. Cells.
+        int n = 1;
+        for (int tier = 0; tier < tiers; tier++) {
+            int y = Y + tier * CELL_TIER_H;
+            int size = cellSizeForTier(tier);
+            for (int[] sp : cellSpots(r, size)) buildCell(sp[0], y, sp[1], size, n++, tier);
+            for (int x = r[0] + STAIR_BAY + 3; x <= r[2] - 3; x += 8) {
+                arch.set(x, y + CELL_TIER_H - 2, r[1] + 2 + size, Material.SEA_LANTERN);
             }
         }
+
+        // 3. The staircase last, so nothing can build over it.
+        buildCellStair(bayX1, bayX2, r, tiers);
+
         signOn(door[0] + 1, Y + 2, door[1] + 3, BlockFace.SOUTH,
-                "§8§lCELL BLOCK", (n - 1) + " cells", "Higher tiers", "= bigger cells");
+                "§8§lCELL BLOCK", (n - 1) + " cells", "Ground floor is", "cheapest. /cell");
+        plugin.getLogger().info("Cell wing: " + (n - 1) + " cells across " + tiers + " tiers.");
     }
 
-    /** A real staircase between tiers. The previous build stacked three tiers with no way up. */
-    private void buildCellStair(int x, int y, int z) {
-        for (int step = 0; step < CELL_TIER_H; step++) {
-            for (int dx = 0; dx < 4; dx++) {
-                arch.set(x + dx, y + step, z + step, Material.POLISHED_DEEPSLATE);
-                for (int dy = 1; dy <= 3; dy++) arch.set(x + dx, y + step + dy, z + step, Material.AIR);
+    /**
+     * A switchback staircase in the bay, one flight per tier, alternating direction.
+     *
+     * A single continuous run does not fit: at seven tiers it needs 35 steps of depth in a bay
+     * only 40 long once walls and landings are accounted for, and any taller cell block would
+     * overrun entirely. Folding it back on itself each tier means the stair scales to any number
+     * of tiers within the same footprint.
+     */
+    private void buildCellStair(int bayX1, int bayX2, int[] r, int tiers) {
+        int zLow = r[1] + 3, zHigh = zLow + CELL_TIER_H + 2;
+
+        for (int tier = 0; tier < tiers - 1; tier++) {
+            int baseY = Y + tier * CELL_TIER_H;
+            boolean up = tier % 2 == 0;             // alternate direction each flight
+
+            for (int step = 0; step <= CELL_TIER_H; step++) {
+                int y = baseY + step;
+                int z = up ? zLow + step : zHigh - step;
+                for (int x = bayX1; x <= bayX2; x++) {
+                    arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
+                    for (int dy = 1; dy <= 4; dy++) arch.set(x, y + dy, z, Material.AIR);
+                }
+                arch.set(bayX1 - 1, y + 1, z, Material.POLISHED_DEEPSLATE_WALL);
+                arch.set(bayX2 + 1, y + 1, z, Material.POLISHED_DEEPSLATE_WALL);
             }
-            arch.set(x - 1, y + step + 1, z + step, Material.POLISHED_DEEPSLATE_WALL);
-            arch.set(x + 4, y + step + 1, z + step, Material.POLISHED_DEEPSLATE_WALL);
+            // Landing at the top of the flight, and an opening onto that tier's corridor.
+            int landY = baseY + CELL_TIER_H;
+            int landZ = up ? zHigh : zLow;
+            for (int x = bayX1; x <= bayX2; x++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    arch.set(x, landY, landZ + dz, Material.POLISHED_DEEPSLATE);
+                    for (int dy = 1; dy <= 4; dy++) arch.set(x, landY + dy, landZ + dz, Material.AIR);
+                }
+            }
+            arch.set(bayX1, landY + 4, landZ, Material.SEA_LANTERN);
         }
-        // Open the tier floor above so the stair arrives somewhere instead of into a ceiling.
-        for (int dx = -1; dx <= 4; dx++) {
-            for (int dz = 0; dz <= CELL_TIER_H; dz++) arch.set(x + dx, y + CELL_TIER_H, z + dz, Material.AIR);
+
+        // Openings from the bay onto every tier floor, including the ground one.
+        for (int tier = 0; tier < tiers; tier++) {
+            int y = Y + tier * CELL_TIER_H;
+            for (int dy = 1; dy <= 3; dy++) {
+                for (int z = zLow; z <= zHigh; z++) arch.set(bayX2 + 1, y + dy, z, Material.AIR);
+            }
+            signOn(bayX2 + 2, y + 2, zLow - 1, BlockFace.SOUTH,
+                    "§8§lTIER " + (tier + 1),
+                    cellSizeForTier(tier) + "x" + cellSizeForTier(tier) + " cells",
+                    "§a$" + (long) cellPriceForTier(tier),
+                    tier == 0 ? "Cheapest, by the door" : "");
         }
     }
 
-    private void buildCell(int x, int y, int z, int size, int number) {
+    private void buildCell(int x, int y, int z, int size, int number, int tier) {
         for (int dx = 0; dx < size; dx++) {
             for (int dz = 0; dz < size; dz++) {
                 arch.set(x + dx, y, z + dz, Material.POLISHED_DEEPSLATE);
@@ -530,9 +622,9 @@ public class WorldBuilder {
         placeBed(x + 1, y + 1, z + 1, BlockFace.SOUTH);
         arch.set(x + size - 2, y + 1, z + 1, Material.BARREL);
         arch.set(x + size - 2, y + 3, z + size - 2, Material.LANTERN);
-        // Sign on the solid pier beside the door, so it has backing and survives a chunk reload.
         signOn(x + doorAt + 1, y + 2, z + size - 1, BlockFace.SOUTH,
-                "§7Cell", "§f#" + number, size + "x" + size, "/cell claim");
+                "§7Cell §f#" + number, size + "x" + size,
+                "§a$" + (long) cellPriceForTier(tier), "/cell claim");
     }
 
     // ---- Canteen -----------------------------------------------------------------
@@ -857,7 +949,8 @@ public class WorldBuilder {
             arch.set(x + 1, Y + 3, z, Material.LANTERN);
             // A hologram, not a sign: nothing solid backs a plinth top, and an unsupported wall
             // sign would be culled on the next chunk load.
-            hologramAt(x + 0.5, Y + 4.6, z + 0.5, "§6§l" + crate.display, "§7Right-click with a key");
+            hologramAt(x + 0.5, Y + 4.6, z + 0.5, "§6§l" + crate.display,
+                    "§7Right-click with a key \u00b7 left-click to see the odds");
         }
     }
 

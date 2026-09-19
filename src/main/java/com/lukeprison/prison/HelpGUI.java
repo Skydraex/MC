@@ -40,6 +40,21 @@ public class HelpGUI implements Listener {
     private record Category(String name, Material icon, String blurb, List<Entry> entries) { }
 
     private final List<Category> categories = new ArrayList<>();
+
+    /**
+     * Every command this menu advertises, so the audit can check they all actually exist.
+     * A help entry for a command nobody registered is worse than no help entry at all.
+     */
+    public java.util.List<String> advertisedCommands() {
+        java.util.List<String> out = new ArrayList<>();
+        for (Category cat : categories) {
+            for (Entry e : cat.entries()) {
+                String first = e.command().trim().split("\\s+")[0];
+                if (first.startsWith("/")) out.add(first.substring(1).toLowerCase());
+            }
+        }
+        return out;
+    }
     private final Map<String, Category> byName = new LinkedHashMap<>();
 
     public HelpGUI() {

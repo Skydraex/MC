@@ -26,6 +26,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     private JailManager jailManager;
     private CombatTagListener combatTag;
     private TeleportGuard teleportGuard;
+    private HelpGUI helpGUI;
     private CoinflipManager coinflipManager;
     private ChatFormatListener chatFormat;
     private ProgressionFeatures progression;
@@ -36,6 +37,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     public Economy economy() { return economy; }
     public RankManager ranks() { return rankManager; }
     public ScoreboardManager scoreboard() { return scoreboardManager; }
+    public HelpGUI help() { return helpGUI; }
     public FishingManager fishing() { return fishingManager; }
     public WorldBuilder builder() { return worldBuilder; }
     public CrateListener crates() { return crateListener; }
@@ -162,7 +164,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // The mine cages: the lift between each ward and its pit underground.
         getServer().getPluginManager().registerEvents(new LiftListener(this), this);
         // Replaces vanilla /help, which spans 21 pages of other plugins' commands.
-        getServer().getPluginManager().registerEvents(new HelpGUI(), this);
+        helpGUI = new HelpGUI();
+        getServer().getPluginManager().registerEvents(helpGUI, this);
 
         // Night vision underground. The mines sit well below the surface with no daylight, and
         // lamps alone leave the ore face too dark to work by; the effect is refreshed while a
@@ -221,6 +224,29 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // Dropped items are the one thing a prison server produces in dangerous quantity:
         // a mine reset with a full server in it can leave thousands of them lying around.
         new GroundItemCleanup(this).start();
+
+        // Audit on every boot, one tick after everything is wired. It finds sealed doorways,
+        // spawns inside blocks, culled signs and dead commands in under a second - all of
+        // which used to be found by a person walking into them and reporting it.
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            MapAuditor world = new MapAuditor(worldBuilder);
+            world.runAll();
+            SystemAudit system = new SystemAudit(this);
+            system.runAll();
+            int total = world.getFindings().size() + system.getFindings().size();
+            if (total == 0) {
+                getLogger().info("Startup audit: PASS - world and plugin both check out.");
+            } else {
+                getLogger().warning("Startup audit: " + total + " problem(s) found.");
+                for (MapAuditor.Finding f : world.getFindings()) {
+                    getLogger().warning("  [" + f.category() + "] " + f);
+                }
+                for (SystemAudit.Finding f : system.getFindings()) {
+                    getLogger().warning("  [" + f.category() + "] " + f.detail());
+                }
+                getLogger().warning("Run /padmin audit in game for the same report.");
+            }
+        }, 20L);
 
         jailManager.start();
         new ServerAnnouncer(this).start();

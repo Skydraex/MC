@@ -110,6 +110,13 @@ public class WorldBuilder {
     public Map<Integer, CellManager.CellRect> getCellRects() { return cellRects; }
     public Map<Location, String> getLiftPads() { return liftPads; }
 
+    /** Where signs were REQUESTED, so the audit can check they actually survived. */
+    public List<int[]> getRequestedSignPositions() {
+        List<int[]> out = new ArrayList<>();
+        for (PendingSign sg : signs) out.add(new int[]{sg.x(), sg.y(), sg.z()});
+        return out;
+    }
+
     // ==================================================================================
     // Registration — runs every boot, cheap, places no blocks
     // ==================================================================================

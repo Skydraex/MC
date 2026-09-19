@@ -40,6 +40,7 @@ public class AdminCommands implements CommandExecutor {
             new Sub("setrank", StaffRank.ADMIN, "<player> <A-Z|FREE>", "move a player to any prison rank"),
             new Sub("fishlevel", StaffRank.ADMIN, "<player> <1-60>", "set a fishing level directly"),
             new Sub("resetplayer", StaffRank.ADMIN, "<player>", "wipe progress and send them back to the bus"),
+            new Sub("audit", StaffRank.HELPER, "", "check the built world and the plugin for faults"),
             new Sub("validate", StaffRank.ADMIN, "", "run the in-world map connectivity check"),
 
             new Sub("givekey", StaffRank.SUPERADMIN, "<player> <crate> [n]", "hand out crate keys"),
@@ -186,6 +187,25 @@ public class AdminCommands implements CommandExecutor {
                 t.teleport(plugin.builder().getStarterSpawn());
                 s.sendMessage("§aReset " + t.getName() + " and sent them to the bus.");
                 plugin.getLogger().info("[staff] " + s.getName() + " reset " + t.getName());
+            }
+            case "audit" -> {
+                s.sendMessage("\u00a7eAuditing the world and the plugin...");
+                MapAuditor world = new MapAuditor(plugin.builder());
+                world.runAll();
+                world.report(s);
+                SystemAudit system = new SystemAudit(plugin);
+                system.runAll();
+                system.report(s);
+                int total = world.getFindings().size() + system.getFindings().size();
+                for (MapAuditor.Finding f : world.getFindings()) {
+                    plugin.getLogger().warning("[audit] " + f.category() + ": " + f);
+                }
+                for (SystemAudit.Finding f : system.getFindings()) {
+                    plugin.getLogger().warning("[audit] " + f.category() + ": " + f.detail());
+                }
+                s.sendMessage(total == 0
+                        ? "\u00a7a\u00a7lEverything checks out."
+                        : "\u00a7c" + total + " problem(s) — full detail in the console.");
             }
             case "validate" -> {
                 s.sendMessage("§eRunning map connectivity check...");

@@ -219,11 +219,20 @@ constrain an operator. So the boundary is written down here rather than enforced
    checkout.
 2. **Connect to the server.** Nothing below works until `ClaudeBot` is actually in the game —
    the MCP tools will simply fail. Confirm it joined before starting a job.
-3. **Check which build is running.** Read the console, or ask the owner. Two things move the
-   world: the shaft fix (`e8f5776`) and the ore-face lighting (`3358b4a`). Checking an older
-   build wastes everyone's time and produces findings that are already fixed.
-4. `/gamemode creative ClaudeBot` when you need to fly. That only affects the bot, so it
-   needs no permission.
+3. **Check which build is running.** Read the console, or ask the owner. A finding against an
+   old jar wastes everyone's time. Ask for the commit, and check it against `git log` — do not
+   guess from the world's appearance.
+4. **Set your game mode for the job, and never play in survival.**
+   - Walking a route: `/gamemode adventure ClaudeBot`. You can walk and fall; you cannot break
+     anything.
+   - Flying and looking: `/gamemode spectator ClaudeBot`. You can go anywhere and through
+     anything, and you cannot touch the world at all.
+
+   **Never `/gamemode survival` or `creative`, and never break a block to find out what it is.**
+   You are OP, and `ProtectionListener.bypasses()` exempts `prison.admin` — so anti-grief does
+   not apply to you and every probe you mine leaves a permanent hole in the owner's live world.
+   That has already happened. To identify a block, *read* it with the block-data tool; the
+   answer is the same and the wall stays up.
 
 ### Walk the route by coordinates, not by pathfinding
 
@@ -245,7 +254,10 @@ print(L.regions['corridor_A'], L.regions['ward_A'], L.regions['shaft_A'])"
 
 | step | x | y | z |
 |---|---|---|---|
-| hub spawn | 0 | 96 | 0 |
+| hub spawn — where `/spawn` puts you | 0 | 96 | 14 |
+| north up the spoke, clear of the plaza | 0 | 96 | −20 |
+| the ring walkway, turn west | 0 | 96 | −60 |
+| west along the ring to gate A's centreline | −42 | 96 | −60 |
 | gate A, in the wall | −42 | 96 | −68 |
 | corridor A | −42 | 96 | −71 |
 | ward A, the cage | −42 | 96 | −80 |
@@ -258,6 +270,13 @@ print(L.regions['corridor_A'], L.regions['ward_A'], L.regions['shaft_A'])"
 
 The stair drops y95 → y44 over 51 blocks, then the shaft runs level for 99 more. The shaft is
 8 wide (x −45 to −38), so stay near x = −42.
+
+Two notes on the hub leg, both of which cost the last run an hour:
+
+- **Spawn is at z = 14, not z = 0.** (0, 96, 0) is *inside the watchtower*. Walk north up the
+  spoke; `x = 0` is clear the whole way from the plaza to the ring.
+- **Go north first, then west.** The ring walkway is a closed square loop at Chebyshev radius
+  56–65, so once you are on it you can reach any gate without re-entering the hub interior.
 
 If you stop somewhere that these coordinates say should be open, that IS a finding — report
 the exact block. If you stop somewhere outside them, you wandered off the path; get back on

@@ -70,8 +70,10 @@ public class MapAuditor {
         findings.clear();
         checked.clear();
         auditDoorways();
+        auditHubWalkways();
         auditShafts();
         auditRing();
+        auditMineAccess();
         auditSpawns();
         auditSigns();
         auditCells();
@@ -106,6 +108,128 @@ public class MapAuditor {
             n++;
         }
         count("doorways", n);
+    }
+
+    /**
+     * The hub's own walkways: the perimeter ring, all the way round, and the four spokes.
+     *
+     * Added after the cell wing was found sitting eight blocks inside the ring, sealing the
+     * whole north-west of the hub. Every gate behind it — mine A among them — could only be
+     * reached down a three-block strip between the wing and the outer wall, and nothing said
+     * so. The hub looked finished. It was cut in half.
+     *
+     * The underground ring had this check from the start; the surface one never did, which is
+     * the only reason the wing shipped. A walkway you cannot walk is the same bug at either
+     * level, so it is now the same check.
+     */
+    private void auditHubWalkways() {
+        int n = 0;
+        int y = WorldBuilder.Y;
+        int mid = (WorldBuilder.RING_IN + WorldBuilder.RING_OUT) / 2;
+
+        // The perimeter ring: a closed square loop at Chebyshev radius `mid`.
+        for (int a = -mid; a <= mid; a++) {
+            for (int[] pt : new int[][]{{a, -mid}, {a, mid}, {-mid, a}, {mid, a}}) {
+                n += walkable("ring walkway", pt[0], y, pt[1]) ? 1 : 0;
+            }
+        }
+
+        // The four spokes, from the plaza out to the ring. Starts clear of the watchtower
+        // plinth, which is a step up onto the tower rather than a walkway.
+        for (int m = 4; m <= WorldBuilder.RING_OUT; m++) {
+            for (int[] pt : new int[][]{{0, -m}, {0, m}, {-m, 0}, {m, 0}}) {
+                n += walkable("spoke", pt[0], y, pt[1]) ? 1 : 0;
+            }
+        }
+        count("hub walkway tiles", n);
+    }
+
+    /** Solid to stand on, two blocks of clear air above. Reports once and returns. */
+    private boolean walkable(String what, int x, int y, int z) {
+        if (!world.getBlockAt(x, y, z).getType().isSolid()) {
+            fail(what, "no floor on the " + what + " here", x, y, z);
+            return false;
+        }
+        for (int dy = 1; dy <= 2; dy++) {
+            if (world.getBlockAt(x, y + dy, z).getType().isSolid()) {
+                fail(what, "the " + what + " is blocked here", x, y + dy, z);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * You can walk from a mine's lift pad down onto its ore. On foot, without jumping.
+     *
+     * This is deliberately a reachability test and not a check that the stairs were built
+     * where the builder meant to build them. The pit stair WAS built, on every mine, exactly
+     * as written — and on all seven north-wall mines the cage landing was then laid straight
+     * over its head, so the guard rail ran unbroken the whole way round and the only way into
+     * the ore was to jump in and be stuck. Asking "is the stair there?" would have passed.
+     * The question worth asking is the player's: can I get down?
+     *
+     * So it floods the rim from the landing, the way a player walks it — step up or down one,
+     * two blocks of headroom — and succeeds only if that flood reaches the ore.
+     */
+    private void auditMineAccess() {
+        int n = 0;
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (!d.hasMine()) continue;
+            n++;
+            int[] plot = d.plot;
+            int lx = d.landing[0], lz = d.landing[2];
+
+            java.util.Set<Long> seen = new java.util.HashSet<>();
+            java.util.ArrayDeque<int[]> queue = new java.util.ArrayDeque<>();
+            int startY = standY(lx, lz, MapLayout.MINE_RIM_Y);
+            if (startY == Integer.MIN_VALUE) {
+                fail("mine access", "mine " + d.rank + ": nowhere to stand on the lift pad",
+                        lx, MapLayout.MINE_RIM_Y, lz);
+                continue;
+            }
+            queue.add(new int[]{lx, startY, lz});
+            seen.add(key(lx, lz));
+            boolean reachedOre = false;
+
+            while (!queue.isEmpty() && !reachedOre) {
+                int[] cur = queue.poll();
+                for (int[] step : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                    int nx = cur[0] + step[0], nz = cur[2] + step[1];
+                    if (nx < plot[0] || nx > plot[2] || nz < plot[1] || nz > plot[3]) continue;
+                    if (!seen.add(key(nx, nz))) continue;
+                    int ny = standY(nx, nz, cur[1]);
+                    if (ny == Integer.MIN_VALUE) continue;
+                    if (ny <= d.oreTop + 1) { reachedOre = true; break; }   // feet on the ore
+                    queue.add(new int[]{nx, ny, nz});
+                }
+            }
+            if (!reachedOre) {
+                fail("mine access", "mine " + d.rank
+                        + ": the pit cannot be entered on foot from the lift pad — "
+                        + "no gap in the guard rail leads down to the ore", lx, startY, lz);
+            }
+        }
+        count("mines walked into", n);
+    }
+
+    private static long key(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xffffffffL);
+    }
+
+    /**
+     * The y a player standing at (x, z) ends up on, coming from height {@code fromY}: at most
+     * one block up or one down, with two blocks of headroom. {@link Integer#MIN_VALUE} if they
+     * cannot stand there at all.
+     */
+    private int standY(int x, int z, int fromY) {
+        for (int y : new int[]{fromY + 1, fromY, fromY - 1}) {
+            if (!world.getBlockAt(x, y - 1, z).getType().isSolid()) continue;
+            if (world.getBlockAt(x, y, z).getType().isSolid()) continue;
+            if (world.getBlockAt(x, y + 1, z).getType().isSolid()) continue;
+            return y;
+        }
+        return Integer.MIN_VALUE;
     }
 
     /** Each mine's walk-down shaft is clear from the ward to the ring, at every step. */

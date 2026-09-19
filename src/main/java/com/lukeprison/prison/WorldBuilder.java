@@ -54,11 +54,11 @@ public class WorldBuilder {
     private static final int HUB_HEIGHT = 22;
 
     // Hub interior zoning, measured from the centre outward.
-    private static final int PLAZA_R = 11;          // central watchtower plaza
-    private static final int SPOKE_HALF = 6;        // half width of the four radial walkways
+    static final int PLAZA_R = 11;          // central watchtower plaza
+    static final int SPOKE_HALF = 6;        // half width of the four radial walkways
     private static final int BUILDING_IN = 14;      // quadrant buildings start here
     private static final int BUILDING_OUT = 50;     // ...and end here
-    private static final int RING_IN = 56, RING_OUT = 65;   // perimeter walkway, in front of gates
+    static final int RING_IN = 56, RING_OUT = 65;   // perimeter walkway, in front of gates
 
     // Underground mine level.
     private static final int ORE_BOTTOM = MapLayout.MINE_ORE_BOTTOM;
@@ -720,7 +720,7 @@ public class WorldBuilder {
     // enchanter is somewhere players run into each other — which a command you can type
     // from inside your own cell is not.
 
-    private static final int ENCHANT_R = 7;
+    static final int ENCHANT_R = 7;
 
     /** Somewhere to STAND at the enchanter — two blocks out, not on top of the table. */
     public Location enchanterLocation() {
@@ -747,8 +747,14 @@ public class WorldBuilder {
                                             : Material.POLISHED_BLACKSTONE));
             }
         }
-        // Four stations on the compass points, each a table under a lit arch of shelves.
-        int[][] spots = {{0, ENCHANT_R}, {0, -ENCHANT_R}, {ENCHANT_R, 0}, {-ENCHANT_R, 0}};
+        // Four stations on the DIAGONALS, each a table under a lit arch of shelves.
+        //
+        // They were on the compass points, which are the four spoke centrelines — so the
+        // southern table stood directly in front of spawn and a player walking straight out
+        // of it walked into an enchanting table six blocks later. The diagonals are the
+        // quiet corners of the plaza; the walkways stay clear end to end.
+        int d = Math.round(ENCHANT_R / (float) Math.sqrt(2));
+        int[][] spots = {{d, d}, {d, -d}, {-d, d}, {-d, -d}};
         for (int[] sp : spots) {
             int x = sp[0], z = sp[1];
             arch.set(x, Y + 1, z, Material.ENCHANTING_TABLE);
@@ -919,7 +925,12 @@ public class WorldBuilder {
     // Cells still get cheaper the lower you are: the ground gallery is steps from the door,
     // which is what matters when players run chest shops out of them.
 
-    private static final int CELL_IN = 7, CELL_OUT = 64;
+    // CELL_OUT has to clear the ring walkway. At 64 the wing crossed RING_IN (56) by
+    // eight blocks and sealed the whole north-west of the ring, so the gates behind it —
+    // mine A among them — could only be reached by squeezing down the three-block strip
+    // between the wing and the hub wall. The building looked finished and quietly cut the
+    // hub in half. Anything in the hub now stops short of RING_IN.
+    private static final int CELL_IN = 7, CELL_OUT = RING_IN - 4;
     private static final int CELL_W = 5;          // along the gallery
     private static final int CELL_D = 7;          // back from the gallery
     private static final int GALLERY_W = 3;       // the walkway overlooking the atrium
@@ -1422,7 +1433,13 @@ public class WorldBuilder {
         for (int dx = -2; dx <= 2; dx++) {
             for (int dz = -2; dz <= 2; dz++) {
                 boolean edge = Math.abs(dx) == 2 || Math.abs(dz) == 2;
-                boolean entrance = dx == 0 && dz == -2;
+                // Open at BOTH ends along the hub -> mine axis: in from the corridor, out to the
+                // head of the shaft stair. One hardcoded single-block opening made the cage a
+                // cul-de-sac you had to walk back out of and round, and on three of the four
+                // walls it pointed the wrong way entirely.
+                boolean alongZ = isNS(g.wall());
+                int prim = alongZ ? dz : dx, cross = alongZ ? dx : dz;
+                boolean entrance = Math.abs(prim) == 2 && Math.abs(cross) <= 1;
                 arch.set(cx + dx, Y, cz + dz, Material.POLISHED_BLACKSTONE);
                 for (int dy = 1; dy <= 4; dy++) {
                     arch.set(cx + dx, Y + dy, cz + dz,
@@ -2388,12 +2405,17 @@ public class WorldBuilder {
                 if (lip) arch.set(x, RIM_Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);
             }
         }
-        // Lamp posts at the rim corners and along its length.
-        for (int x = rim[0] + 2; x <= rim[2] - 2; x += 9) {
-            for (int z : new int[]{rim[1] + 2, rim[3] - 2}) minerLamp(x, z);
+        // Lamp posts ON the guard rail, not in the walkway.
+        //
+        // The rim is only RIM_W wide. Posts at rim +/- 2 stood in the middle of that, so the
+        // walkway was a four-block strip with a three-block obstruction every nine blocks and
+        // you had to weave round each one. The rail line is already a wall; a taller post in it
+        // lights the pit, reads as part of the railing, and leaves the walkway clear.
+        for (int x = p[0] - 1; x <= p[2] + 1; x += 9) {
+            for (int z : new int[]{p[1] - 1, p[3] + 1}) if (!lampBlocked(d, x, z)) minerLamp(x, z);
         }
-        for (int z = rim[1] + 2; z <= rim[3] - 2; z += 9) {
-            for (int x : new int[]{rim[0] + 2, rim[2] - 2}) minerLamp(x, z);
+        for (int z = p[1] - 1; z <= p[3] + 1; z += 9) {
+            for (int x : new int[]{p[0] - 1, p[2] + 1}) if (!lampBlocked(d, x, z)) minerLamp(x, z);
         }
         // Pit lighting from above, on the ceiling, so the ore face is lit but nothing is
         // embedded in the ore where it would be mined away on the first pass.
@@ -2422,17 +2444,58 @@ public class WorldBuilder {
                 arch.set(p[2] + 1, y, z, Material.SEA_LANTERN);
             }
         }
-        // A stair down into the pit on the side opposite the cage, so you can walk out of the
-        // hole once you have mined down, rather than being stuck in it.
-        int sx = (p[0] + p[2]) / 2;
+        // Stairs down into the pit, on the side you arrive from, flanking the cage.
+        //
+        // This used to be a single flight hardcoded to the pit's p[3] + 1 edge. On the seven
+        // north-wall mines that edge IS the ring side, which is exactly where the cage lands —
+        // so the cage floor was laid straight over the stair head and capped it. The pit had no
+        // walk-in entrance at all on those mines: the guard rail ran unbroken the whole way
+        // round and the only way in was to jump. Derive the side from the wall like everything
+        // else, and offset the flights clear of the five-wide cage.
+        pitStair(d, mt, -STAIR_OFFSET);
+        pitStair(d, mt, STAIR_OFFSET);
+    }
+
+    /** How far along the rim, either side of the cage, the walk-down flights sit. */
+    private static final int STAIR_OFFSET = 8;
+
+    /**
+     * One flight from the rim down onto the ore, cut into the pit's hub-facing lip.
+     *
+     * {@code along} is the offset from the mine's centre line, measured along the hub wall, so
+     * the two flights straddle the cage instead of colliding with it.
+     */
+    private void pitStair(RankMineData.Def d, MineTheme mt, int along) {
+        int[] p = d.pit;
+        boolean alongZ = isNS(d.wall);          // hub -> mine runs along z on the N and S walls
+        int toHub = -outwardSign(d.wall);       // from the pit, the way back towards the hub
+        // The lip on the side facing the hub: the edge a player walking in off the ring meets.
+        // Descending from it means walking AWAY from the hub, deeper into the pit.
+        int lip = alongZ ? (toHub > 0 ? p[3] + 1 : p[1] - 1)
+                         : (toHub > 0 ? p[2] + 1 : p[0] - 1);
+        int centre = alongZ ? (p[0] + p[2]) / 2 : (p[1] + p[3]) / 2;
+
         for (int step = 0; step <= RIM_Y - d.oreTop; step++) {
+            int depth = lip - toHub * step;
             for (int w = -1; w <= 1; w++) {
-                arch.set(sx + w, RIM_Y - step, p[3] + 1 - step, mt.trim());
-                for (int dy = 1; dy <= 3; dy++) {
-                    arch.set(sx + w, RIM_Y - step + dy, p[3] + 1 - step, Material.AIR);
-                }
+                int c = centre + along + w;
+                int x = alongZ ? c : depth, z = alongZ ? depth : c;
+                arch.set(x, RIM_Y - step, z, mt.trim());
+                for (int dy = 1; dy <= 3; dy++) arch.set(x, RIM_Y - step + dy, z, Material.AIR);
             }
         }
+    }
+
+    /** A rail post may not stand on a walk-down flight or inside the cage landing. */
+    private boolean lampBlocked(RankMineData.Def d, int x, int z) {
+        int[] pit = d.pit;
+        boolean alongZ = isNS(d.wall);
+        int centre = alongZ ? (pit[0] + pit[2]) / 2 : (pit[1] + pit[3]) / 2;
+        int c = alongZ ? x : z;
+        for (int along : new int[]{-STAIR_OFFSET, STAIR_OFFSET}) {
+            if (Math.abs(c - (centre + along)) <= 1) return true;
+        }
+        return Math.abs(x - d.landing[0]) <= 2 && Math.abs(z - d.landing[2]) <= 2;
     }
 
     private void minerLamp(int x, int z) {
@@ -2447,7 +2510,16 @@ public class WorldBuilder {
             for (int dz = -2; dz <= 2; dz++) {
                 arch.set(lx + dx, RIM_Y, lz + dz, Material.POLISHED_BLACKSTONE);
                 boolean edge = Math.abs(dx) == 2 || Math.abs(dz) == 2;
-                boolean doorway = dz == 2 && Math.abs(dx) <= 1;
+                // Openings: the end facing the ring, so you can walk in off the concourse, and
+                // both sides, so you can walk out onto the rim and round to a stair. The old
+                // hardcoded dz == 2 opened the ring end only on the north-wall mines and faced
+                // sideways on the others, which left the cage sitting in the ring's own doorway
+                // with nothing but a one-block slot past either shoulder. The far end stays
+                // barred on purpose: it overhangs the pit, and those bars are its guard rail.
+                boolean alongZ = isNS(d.wall);
+                int prim = alongZ ? dz : dx, cross = alongZ ? dx : dz;
+                boolean doorway = (prim == -2 * outwardSign(d.wall) && Math.abs(cross) <= 1)
+                        || (Math.abs(cross) == 2 && Math.abs(prim) <= 1);
                 for (int dy = 1; dy <= 4; dy++) {
                     arch.set(lx + dx, RIM_Y + dy, lz + dz,
                             (edge && !doorway) ? Material.IRON_BARS : Material.AIR);

@@ -204,6 +204,10 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskTimer(this, cellManager::checkExpiredRentals, 20L * 60, 20L * 60 * 15); // every 15 min
         Bukkit.getScheduler().runTaskTimer(this, worldBuilder::regrowTrees, 20L * 60 * 3, 20L * 60 * 3); // every 3 min
 
+        // Dropped items are the one thing a prison server produces in dangerous quantity:
+        // a mine reset with a full server in it can leave thousands of them lying around.
+        new GroundItemCleanup(this).start();
+
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             int online = Bukkit.getOnlinePlayers().size();
             int max = Bukkit.getMaxPlayers();

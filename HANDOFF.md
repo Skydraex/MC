@@ -211,8 +211,26 @@ constrain an operator. So the boundary is written down here rather than enforced
   `jail`, `kick`, `mute`
 - `/op`, `/deop`, or changing anyone's permissions
 - Editing `server.properties`, or adding or removing plugins
-- Breaking or placing blocks outside a mine. The world is generated, so hand edits are lost
-  on the next rebuild and confuse the audit until then
+- **Fixing anything by hand.** See below — this is the important one
+
+### Report, do not fix
+
+You are in creative and you are OP, so you *can* patch things by hand. Do not.
+
+If a doorway is sealed and you open it with a block edit, the next audit comes back clean,
+the generator bug is never found, and it ships. The owner deletes the world a week later and
+the doorway is sealed again. That is precisely how the ward-sealing bug survived three rounds
+of testing — the symptom kept getting worked around instead of traced.
+
+The world is generated and disposable. Player data (ranks, balances, cells, fishing levels)
+lives in `plugins/PrisonPlugin/`, not in the world folder, so a full rebuild costs twenty
+seconds and loses nothing. There is never a reason to patch the world to save it.
+
+**So: find it, record the exact coordinates, report it.** Someone fixes `WorldBuilder` or
+`layout_gen.py`, the owner rebuilds, and the audit confirms the fix for real.
+
+The one exception is a scratch build somewhere well away from the prison, to show the owner
+an idea. That is a sketch, not a repair, and it is expected to vanish on the next rebuild.
 
 ### What you are for
 

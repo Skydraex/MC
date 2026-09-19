@@ -664,19 +664,38 @@ public class WorldBuilder {
         for (int dx = -3; dx <= 3; dx++) {
             for (int dz = -3; dz <= 3; dz++) arch.set(dx, Y + 1, dz, Material.CHISELED_POLISHED_BLACKSTONE);
         }
-        for (int dy = 2; dy <= 16; dy++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    boolean corner = Math.abs(dx) == 1 && Math.abs(dz) == 1;
-                    arch.set(dx, Y + dy, dz, corner ? Material.POLISHED_DEEPSLATE
-                            : (dy % 4 == 0 ? Material.CHISELED_DEEPSLATE : Material.DEEPSLATE_BRICKS));
+        // The watchtower has to be the tallest thing in the prison, or the cell block is,
+        // and a cell block that out-tops the tower reads as an office park. Every reference
+        // build has one structure the eye goes to first; this is that structure.
+        final int TOWER_TOP = 44;
+        for (int dy = 2; dy <= TOWER_TOP; dy++) {
+            int half = (dy > TOWER_TOP - 6) ? 2 : 1;          // the head flares out
+            for (int dx = -half; dx <= half; dx++) {
+                for (int dz = -half; dz <= half; dz++) {
+                    boolean corner = Math.abs(dx) == half && Math.abs(dz) == half;
+                    boolean glazed = dy > TOWER_TOP - 5 && dy < TOWER_TOP - 1 && !corner;
+                    arch.set(dx, Y + dy, dz, glazed ? Material.TINTED_GLASS
+                            : corner ? Material.POLISHED_DEEPSLATE
+                            : (dy % 6 == 0 ? Material.CHISELED_DEEPSLATE : Material.DEEPSLATE_BRICKS));
+                }
+            }
+            // A string course every six, so a 44-block shaft is not one unbroken column.
+            if (dy % 6 == 0) {
+                for (int[] o : new int[][]{{-2, 0}, {2, 0}, {0, -2}, {0, 2}}) {
+                    arch.set(o[0], Y + dy, o[1], Material.DEEPSLATE_TILES);
                 }
             }
         }
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) arch.placeSlab(dx, Y + 17, dz, Material.DEEPSLATE_BRICK_SLAB, false);
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                arch.placeSlab(dx, Y + TOWER_TOP + 1, dz, Material.DEEPSLATE_BRICK_SLAB, false);
+            }
         }
-        arch.set(0, Y + 18, 0, Material.SEA_LANTERN);
+        arch.set(0, Y + TOWER_TOP + 2, 0, Material.SEA_LANTERN);
+        // A searchlight on each face of the head, which is what a watchtower is for.
+        for (int[] o : new int[][]{{-3, 0}, {3, 0}, {0, -3}, {0, 3}}) {
+            arch.set(o[0], Y + TOWER_TOP - 3, o[1], Material.SEA_LANTERN);
+        }
 
         signOn(0, Y + 2, -4, BlockFace.NORTH, "§b§lSKY PRISON", "N: Mines A-G", "E: Mines H-N", "/help for more");
         signOn(0, Y + 2, 4, BlockFace.SOUTH, "§6§lWHERE TO", "S: Mines O-U", "W: Mines V-Z", "Fishing / Crates");
@@ -876,212 +895,234 @@ public class WorldBuilder {
 
     // ---- Cell block --------------------------------------------------------------
     //
-    // A cell HALL, not a tower. The previous one stacked seven small tiers to reach a
-    // hundred cells, which meant most of the block was somewhere you had to climb to and
-    // the ground floor — the part players actually want, because that is where chest shops
-    // go — was a fraction of it.
+    // An ATRIUM, which is what a real cell block is and what the reference build shows: one
+    // tall hall with galleries of cells running down both sides, railings overlooking the
+    // floor, columns the full height and daylight coming in from a glazed roof.
     //
-    // Now: aisles with cells down BOTH sides, so every cell on a floor is visible from the
-    // walkway, over three floors rather than seven. The footprint is the largest a hub
-    // quadrant allows without crossing a spoke, and walking the whole block end to end and
-    // top to bottom comes to roughly three-quarters of a minute.
+    // This is the third arrangement. The first was a seven-tier tower where most cells were
+    // somewhere you had to climb to. The second was four floors of enclosed aisles, which
+    // fixed the climbing but meant you saw one corridor at a time and the building had no
+    // interior to speak of. An atrium gives every cell a door onto the same space, so
+    // walking in shows you the whole block at once.
     //
-    // Lower floors stay cheapest: small, but steps from the door.
+    // Cells still get cheaper the lower you are: the ground gallery is steps from the door,
+    // which is what matters when players run chest shops out of them.
 
-    private static final int CELL_IN = 7, CELL_OUT = 64;   // the quadrant, spoke to hub wall
-    private static final int TARGET_CELLS = 100;
-    private static final int CELL_W = 6;        // along the aisle
-    private static final int CELL_D = 7;        // back from the aisle
-    private static final int AISLE_W = 6;       // the walkway between two facing rows
-    private static final int CROSS_W = 7;       // cross corridor and stair, at the far end
+    private static final int CELL_IN = 7, CELL_OUT = 64;
+    private static final int CELL_W = 5;          // along the gallery
+    private static final int CELL_D = 7;          // back from the gallery
+    private static final int GALLERY_W = 3;       // the walkway overlooking the atrium
+    private static final int STAIR_W = 7;         // stair bay at the west end
+    private static final int CELL_FLOORS = 6;
 
     private int[] cellWing() {
         return new int[]{-CELL_OUT, -CELL_OUT, -CELL_IN, -CELL_IN};
     }
 
+    private int cellsPerRow(int[] r) {
+        return Math.max(1, ((r[2] - 1) - (r[0] + 1 + STAIR_W) + 1) / CELL_W);
+    }
+
+    /** z of the first cell in each row, and which way its door faces. */
+    private int[] southCellZ(int[] r) { return new int[]{r[1] + 1, r[1] + 1 + CELL_D - 1}; }
+    private int[] northCellZ(int[] r) { return new int[]{r[3] - 1 - CELL_D + 1, r[3] - 1}; }
+
+    /** The open void in the middle, which every gallery looks into. */
+    private int[] atriumZ(int[] r) {
+        return new int[]{r[1] + 1 + CELL_D + GALLERY_W, r[3] - 1 - CELL_D - GALLERY_W};
+    }
+
     /**
-     * Claim price for a floor. The ground floor is deliberately the cheapest thing on the
-     * map so a new player can afford somewhere to put a shop chest; upper floors cost more
-     * and their cells are larger.
+     * Claim price for a gallery. The ground floor is deliberately the cheapest thing on the
+     * map so a new player can afford somewhere to put a shop chest.
      */
     public static double cellPriceForTier(int tier) {
         return 15_000 * Math.pow(2.5, tier);
     }
 
-    /** A row of cells: where it starts, and which way its doors face. */
-    private record CellRow(int z, boolean doorsNorth) { }
-
-    /**
-     * The rows on one floor. Each aisle has a row on either side of it, facing in, so you
-     * walk one walkway and see both.
-     */
-    private List<CellRow> cellRows(int[] r) {
-        List<CellRow> rows = new ArrayList<>();
-        int z = r[1] + 1;
-        int limit = r[3] - 1;
-        while (z + CELL_D + AISLE_W + CELL_D <= limit) {
-            rows.add(new CellRow(z, false));                       // doors face south, onto the aisle
-            rows.add(new CellRow(z + CELL_D + AISLE_W, true));     // doors face north, onto the same aisle
-            z += CELL_D + AISLE_W + CELL_D + 1;
-        }
-        return rows;
-    }
-
-    private int cellsPerRow(int[] r) {
-        return Math.max(1, ((r[2] - 1) - (r[0] + 1 + CROSS_W)) / CELL_W);
-    }
-
-    private int cellsPerFloor(int[] r) {
-        return cellRows(r).size() * cellsPerRow(r);
-    }
-
-    private int floorCount() {
-        int[] r = cellWing();
-        int per = cellsPerFloor(r);
-        return Math.max(1, (int) Math.ceil(TARGET_CELLS / (double) per));
-    }
-
     private void registerCellRects() {
         cellRects.clear();
         int[] r = cellWing();
-        int x0 = r[0] + 1 + CROSS_W;
+        int x0 = r[0] + 1 + STAIR_W;
         int perRow = cellsPerRow(r);
+        int[] south = southCellZ(r), north = northCellZ(r);
         int n = 1;
-        for (int floor = 0; floor < floorCount(); floor++) {
+        for (int floor = 0; floor < CELL_FLOORS; floor++) {
             int y = Y + floor * CELL_TIER_H;
-            for (CellRow row : cellRows(r)) {
+            for (int[] row : new int[][]{south, north}) {
                 for (int c = 0; c < perRow; c++) {
                     int x = x0 + c * CELL_W;
-                    cellRects.put(n, new CellManager.CellRect(n, x, row.z(),
-                            x + CELL_W - 1, row.z() + CELL_D - 1, y));
+                    cellRects.put(n, new CellManager.CellRect(n, x, row[0],
+                            x + CELL_W - 1, row[1], y));
                     n++;
                 }
             }
         }
     }
 
-    /** Which floor a cell number sits on — used for its price. */
+    /** Which gallery a cell number sits on — used for its price. */
     public int tierOfCell(int number) {
-        int per = cellsPerFloor(cellWing());
-        return per <= 0 ? 0 : Math.min(floorCount() - 1, (number - 1) / per);
+        int per = cellsPerRow(cellWing()) * 2;
+        return per <= 0 ? 0 : Math.min(CELL_FLOORS - 1, (number - 1) / per);
     }
 
     private void buildCellWing() {
         int[] r = cellWing();
-        int floors = floorCount();
-        int height = floors * CELL_TIER_H + 3;
+        int height = CELL_FLOORS * CELL_TIER_H + 4;
+        int[] atrium = atriumZ(r);
+        int x0 = r[0] + 1 + STAIR_W;
+        int perRow = cellsPerRow(r);
+        int[] south = southCellZ(r), north = northCellZ(r);
 
         quadrantShell(r, height, Architect.CELL_STONE, Material.POLISHED_DEEPSLATE,
                 Material.DEEPSLATE_TILES);
         int[] door = quadrantDoor(r);
 
-        int stairX1 = r[0] + 1, stairX2 = r[0] + CROSS_W;
-        int x0 = r[0] + 1 + CROSS_W;
-        int perRow = cellsPerRow(r);
-        List<CellRow> rows = cellRows(r);
-
-        // Floors first, with the stair run left open all the way up. Laying a floor after
-        // the stair is what sealed the old one: each tier punched a hole and the next tier
-        // filled it straight back in.
-        for (int floor = 1; floor < floors; floor++) {
+        // Gallery decks. The atrium is left open all the way up — that void is the building.
+        for (int floor = 1; floor < CELL_FLOORS; floor++) {
             int y = Y + floor * CELL_TIER_H;
-            // The one gap: exactly the stretch the flight arriving on this floor climbs
-            // through. Leaving the whole bay open would be a trench beside the walkway;
-            // leaving none of it open is what sealed the old stair.
-            int holeZ1 = r[1] + 3 + (floor - 1) * CELL_TIER_H;
-            int holeZ2 = holeZ1 + CELL_TIER_H + 1;
             for (int x = r[0] + 1; x <= r[2] - 1; x++) {
                 for (int z = r[1] + 1; z <= r[3] - 1; z++) {
-                    boolean inStairRun = x >= r[0] + 1 && x <= r[0] + 3;
-                    if (inStairRun && z >= holeZ1 && z <= holeZ2) continue;
+                    boolean overAtrium = z >= atrium[0] && z <= atrium[1] && x >= x0;
+                    if (overAtrium) continue;
                     arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
+                }
+            }
+            // Railings along both gallery edges, so nobody walks off into the hall.
+            for (int x = x0; x <= r[2] - 1; x++) {
+                arch.set(x, y + 1, atrium[0] - 1, Material.DEEPSLATE_BRICK_WALL);
+                arch.set(x, y + 1, atrium[1] + 1, Material.DEEPSLATE_BRICK_WALL);
+            }
+        }
+
+        // Columns, full height, on the cell module — what gives the hall its rhythm.
+        for (int x = x0; x <= r[2] - 1; x += CELL_W * 2) {
+            for (int z : new int[]{atrium[0] - 1, atrium[1] + 1}) {
+                for (int dy = 1; dy <= height - 2; dy++) {
+                    arch.set(x, Y + dy, z, (dy % CELL_TIER_H == 0)
+                            ? Material.CHISELED_DEEPSLATE : Material.POLISHED_DEEPSLATE);
                 }
             }
         }
 
         int n = 1;
-        for (int floor = 0; floor < floors; floor++) {
+        for (int floor = 0; floor < CELL_FLOORS; floor++) {
             int y = Y + floor * CELL_TIER_H;
-            for (CellRow row : rows) {
+            for (int[] row : new int[][]{south, north}) {
+                boolean doorsNorth = row == north;
                 for (int c = 0; c < perRow; c++) {
-                    buildCell(x0 + c * CELL_W, y, row.z(), n++, floor, row.doorsNorth());
-                }
-            }
-            // Light the aisles from above rather than from the cell walls.
-            for (int i = 0; i + 1 < rows.size(); i += 2) {
-                int aisleZ = rows.get(i).z() + CELL_D + AISLE_W / 2;
-                for (int x = x0; x <= r[2] - 2; x += 7) {
-                    arch.set(x, y + CELL_TIER_H - 1, aisleZ, Material.SEA_LANTERN);
+                    buildCell(x0 + c * CELL_W, y, row[0], n++, floor, doorsNorth);
                 }
             }
         }
 
-        buildCellStair(stairX1, stairX2, r, floors);
+        buildAtriumFloor(r, atrium, x0);
+        buildCellStair(r, height, atrium);
+        glazeAtriumRoof(r, atrium, x0, Y + height);
 
         signOn(door[0] - 1, Y + 2, door[1] + 3, BlockFace.SOUTH,
-                "§8§lCELL BLOCK", (n - 1) + " cells",
+                "\u00a78\u00a7lCELL BLOCK", (n - 1) + " cells",
                 "Ground floor is", "cheapest. /cell");
-        plugin.getLogger().info("Cell block: " + (n - 1) + " cells over " + floors
-                + " floors, " + perRow + " per row.");
+        plugin.getLogger().info("Cell block: " + (n - 1) + " cells on "
+                + CELL_FLOORS + " galleries around an atrium.");
+    }
+
+    /** The floor of the hall: patterned paving, planters, benches and a lit centrepiece. */
+    private void buildAtriumFloor(int[] r, int[] atrium, int x0) {
+        int cz = (atrium[0] + atrium[1]) / 2;
+        for (int x = x0; x <= r[2] - 1; x++) {
+            for (int z = atrium[0]; z <= atrium[1]; z++) {
+                int fromMid = Math.abs(z - cz);
+                Material mat = (fromMid <= 2) ? Material.POLISHED_ANDESITE
+                        : ((x + z) % 7 == 0) ? Material.POLISHED_DEEPSLATE
+                        : ((x / 2 + z / 2) % 2 == 0) ? Material.SMOOTH_STONE
+                        : Material.POLISHED_DIORITE;
+                arch.set(x, Y, z, mat);
+            }
+        }
+        // Planters and benches down the middle, which is what stops a big floor reading empty.
+        for (int x = x0 + 5; x <= r[2] - 5; x += 9) {
+            for (int dz : new int[]{-6, 6}) {
+                for (int d = -1; d <= 1; d++) {
+                    arch.set(x + d, Y + 1, cz + dz, Material.POLISHED_DEEPSLATE);
+                }
+                arch.set(x, Y + 2, cz + dz, Material.ROOTED_DIRT);
+                arch.set(x, Y + 3, cz + dz, Material.OAK_SAPLING);
+                arch.placeStair(x - 2, Y + 1, cz + dz, Material.DEEPSLATE_BRICK_STAIRS,
+                        BlockFace.EAST, false);
+                arch.placeStair(x + 2, Y + 1, cz + dz, Material.DEEPSLATE_BRICK_STAIRS,
+                        BlockFace.WEST, false);
+            }
+            arch.set(x, Y + 1, cz, Material.SEA_LANTERN);
+        }
+    }
+
+    /** A glazed roof over the hall, so the block is lit from above like the real thing. */
+    private void glazeAtriumRoof(int[] r, int[] atrium, int x0, int roofY) {
+        for (int x = x0; x <= r[2] - 1; x++) {
+            for (int z = atrium[0]; z <= atrium[1]; z++) {
+                boolean rib = (x % 6 == 0) || (z == atrium[0]) || (z == atrium[1]);
+                arch.set(x, roofY, z, rib ? Material.DEEPSLATE_BRICKS : Material.GLASS);
+                if (rib && x % 12 == 0) arch.set(x, roofY - 1, z, Material.LANTERN);
+            }
+        }
     }
 
     /**
-     * One straight flight per floor, laid as STAIR BLOCKS.
+     * The stair, in its own bay at the west end, one straight flight per gallery.
      *
-     * The old one was a column of full blocks, so every step was a jump — slow, noisy, and
-     * it costs hunger. Its handrail was also written at the first cell column rather than
-     * the edge of its own bay, which is what was clipping into the cells.
+     * Stair BLOCKS, not a column of full blocks: a full-block staircase is a jump at every
+     * step, which is slow, noisy and costs hunger. Each gallery deck leaves open exactly the
+     * stretch its flight climbs through — no more, so there is no trench beside the walkway,
+     * and no less, which is what sealed the first two versions of this stair.
      */
-    private void buildCellStair(int stairX1, int stairX2, int[] r, int floors) {
-        int runX1 = stairX1, runX2 = stairX1 + 2;          // the climbing lane
-        int landX1 = runX2 + 1, landX2 = stairX2;          // flat walkway beside it
+    private void buildCellStair(int[] r, int height, int[] atrium) {
+        int bx1 = r[0] + 1, bx2 = r[0] + STAIR_W;
+        int runZ = r[1] + 3;
 
-        for (int floor = 0; floor + 1 < floors; floor++) {
+        for (int floor = 0; floor + 1 < CELL_FLOORS; floor++) {
             int baseY = Y + floor * CELL_TIER_H;
-            int z0 = r[1] + 3 + floor * CELL_TIER_H;
+            int z0 = runZ + floor * (CELL_TIER_H + 1);
 
             for (int step = 1; step <= CELL_TIER_H; step++) {
-                int y = baseY + step;
-                int z = z0 + step;
-                for (int x = runX1; x <= runX2; x++) {
+                int y = baseY + step, z = z0 + step;
+                for (int x = bx1; x <= bx1 + 2; x++) {
                     arch.placeStair(x, y - 1, z, Material.DEEPSLATE_BRICK_STAIRS,
                             BlockFace.SOUTH, false);
                     arch.set(x, y - 2, z, Material.DEEPSLATE_BRICKS);
                     for (int dy = 0; dy <= 3; dy++) arch.set(x, y + dy, z, Material.AIR);
                 }
             }
-            // The landing at the top, flush with the floor it arrives on.
-            int landY = baseY + CELL_TIER_H;
-            int landZ = z0 + CELL_TIER_H;
-            for (int x = runX1; x <= landX2; x++) {
+            int landY = baseY + CELL_TIER_H, landZ = z0 + CELL_TIER_H;
+            for (int x = bx1; x <= bx2; x++) {
                 for (int dz = 1; dz <= 3; dz++) {
                     arch.set(x, landY, landZ + dz, Material.POLISHED_DEEPSLATE);
                     for (int dy = 1; dy <= 4; dy++) arch.set(x, landY + dy, landZ + dz, Material.AIR);
                 }
             }
-            arch.set(landX2, landY + 4, landZ + 2, Material.SEA_LANTERN);
+            arch.set(bx2, landY + 4, landZ + 2, Material.SEA_LANTERN);
         }
 
-        // The cross corridor on every floor: how you get from the stair to the aisles.
-        for (int floor = 0; floor < floors; floor++) {
+        // A landing on every gallery joining the stair bay to both walkways.
+        for (int floor = 0; floor < CELL_FLOORS; floor++) {
             int y = Y + floor * CELL_TIER_H;
-            for (int x = landX1; x <= landX2; x++) {
+            for (int x = bx1 + 3; x <= bx2 + 1; x++) {
                 for (int z = r[1] + 1; z <= r[3] - 1; z++) {
                     arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
                     for (int dy = 1; dy <= CELL_TIER_H - 2; dy++) arch.set(x, y + dy, z, Material.AIR);
                 }
             }
-            signOn(landX2 + 1, y + 2, r[1] + 2, BlockFace.SOUTH,
-                    "§8§lFLOOR " + (floor + 1),
+            signOn(bx2 + 2, y + 2, atrium[0] - 2, BlockFace.SOUTH,
+                    "\u00a78\u00a7lGALLERY " + (floor + 1),
                     CELL_W + "x" + CELL_D + " cells",
-                    "§a$" + String.format("%,d", (long) cellPriceForTier(floor)),
+                    "\u00a7a$" + String.format("%,d", (long) cellPriceForTier(floor)),
                     floor == 0 ? "Cheapest, by the door" : "");
         }
     }
 
     /**
-     * One cell: barred front onto the aisle, a bed, a barrel and a light. Players can build
-     * inside their own cell; the surrounding structure is protected.
+     * One cell: barred front onto the gallery, a bed, a barrel and a light. Players can build
+     * inside their own cell; the structure around it is protected.
      */
     private void buildCell(int x, int y, int z, int number, int floor, boolean doorsNorth) {
         for (int dx = 0; dx < CELL_W; dx++) {
@@ -1095,13 +1136,12 @@ public class WorldBuilder {
                 }
             }
         }
-        // The barred face, on whichever side the aisle is.
+        // The barred face, on whichever side the gallery is.
         int frontZ = doorsNorth ? z : z + CELL_D - 1;
         int doorAt = CELL_W / 2;
         for (int i = 1; i < CELL_W - 1; i++) {
             for (int dy = 1; dy <= CELL_TIER_H - 2; dy++) {
-                arch.set(x + i, y + dy, frontZ,
-                        i == doorAt ? Material.AIR : Material.IRON_BARS);
+                arch.set(x + i, y + dy, frontZ, i == doorAt ? Material.AIR : Material.IRON_BARS);
             }
         }
         int backZ = doorsNorth ? z + CELL_D - 2 : z + 1;
@@ -1109,8 +1149,8 @@ public class WorldBuilder {
         arch.set(x + CELL_W - 2, y + 1, backZ, Material.BARREL);
         arch.set(x + CELL_W - 2, y + CELL_TIER_H - 2, backZ, Material.LANTERN);
         signOn(x + doorAt + 1, y + 2, frontZ, doorsNorth ? BlockFace.NORTH : BlockFace.SOUTH,
-                "§7Cell §f#" + number, CELL_W + "x" + CELL_D,
-                "§a$" + String.format("%,d", (long) cellPriceForTier(floor)), "/cell claim");
+                "\u00a77Cell \u00a7f#" + number, CELL_W + "x" + CELL_D,
+                "\u00a7a$" + String.format("%,d", (long) cellPriceForTier(floor)), "/cell claim");
     }
 
     // ---- Canteen -----------------------------------------------------------------

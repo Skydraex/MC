@@ -168,30 +168,70 @@ server. That is precisely what a local session with the bot is for.
 The project page is **MC Server**:
 https://app.notion.com/p/3df49cce9c22806bb296d57141f12567
 
-**It is out of date.** It was last edited at 11:31 on 19 Sep 2026, before the afternoon's
-rebuild, so it still describes the earlier layout — different mine positions, the old cell
-block, no plateau, and tokens as a currency. Treat it as history, not as a spec. The owner
-has asked before that it be kept current; updating it to match the present build is a
-genuinely useful outstanding task.
+**Updated 19 Sep 2026** to match this build. It now carries the current map specification,
+the staff ladder, the removal of tokens and of Explosive/Auto-Smelt, the audits, and a
+section on ClaudeBot mirroring the one above. Keep it current as things change.
 
 If the Notion connector is not available in this session, the owner can enable it in
 claude.ai connector settings. Ask before editing the page — it is theirs.
 
 ---
 
-## The bot
+## The bot — you are `ClaudeBot`, and you are OP
 
-`.mcp.json` in this repo configures a mineflayer-based Minecraft MCP server
+`.mcp.json` configures a mineflayer-based Minecraft MCP server
 (`github:yuniko-software/minecraft-mcp-server`) against `localhost:25565` as `ClaudeBot`.
 
-- **Needs ViaVersion + ViaBackwards on the server.** The bot speaks 1.21.11; the server is
-  26.2. Without them it cannot connect at all.
-- **Needs `online-mode=false`.** The bot has no Mojang account.
+Setup it depends on, all already done on the owner's machine:
+
+- **ViaVersion + ViaBackwards** on the server. The bot speaks 1.21.11, the server is 26.2.
+  Without them it cannot connect at all.
+- **`online-mode=false`.** The bot has no Mojang account.
 - **First launch is slow** — it clones and compiles. If MCP startup times out, launch with
   `MCP_TIMEOUT=120000 claude`.
-- **What it sees is not what the owner sees.** ViaBackwards translates packets, it does not
-  backport blocks. Materials newer than 1.21.11 — cherry and mangrove wood,
-  `CHISELED_BOOKSHELF`, `PINK_PETALS`, `TINTED_GLASS` — arrive as substitutes.
 
-So: trust the bot on **structure** (can I get from here to there, is this sealed, is this
-drop survivable) and not on **appearance**. For appearance, ask the owner for a screenshot.
+### You are an operator
+
+`ClaudeBot` is OP. That means every command on the server, including every `/padmin`
+subcommand regardless of the staff ladder. The ladder constrains a human Helper; it does not
+constrain an operator. So the boundary is written down here rather than enforced by the code.
+
+**Do freely, no need to ask:**
+
+- Go anywhere, look at anything, report what you find
+- `/padmin audit`, and investigate whatever it flags
+- `/warps`, `/mine <rank>`, `/spawn`, `/cell` and other read-only or self-affecting commands
+- `/padmin setrank ClaudeBot <rank>` to reach a mine you need to inspect
+- Give *yourself* keys, gear or money to test a system end to end — you are a test account
+
+**Ask the owner first:**
+
+- `/padmin rebuild`, or deleting the `prison` world — destroys the world; a full rebuild to undo
+- Anything targeting a **real player**: `setrank`, `resetplayer`, `givegear`, `givemoney`,
+  `jail`, `kick`, `mute`
+- `/op`, `/deop`, or changing anyone's permissions
+- Editing `server.properties`, or adding or removing plugins
+- Breaking or placing blocks outside a mine. The world is generated, so hand edits are lost
+  on the next rebuild and confuse the audit until then
+
+### What you are for
+
+Structural verification — the thing no session that built this could do. Concretely:
+
+1. Walk the full route to a mine on foot: gate, ward, stair, the 160-block shaft, the ring
+   concourse, into the pit. Confirm it can be done without getting stuck.
+2. Go and look at whatever `/padmin audit` flags.
+3. Ride a cage lift and confirm it lands somewhere survivable.
+4. Walk the cell block's six galleries and the stair between them. That stair has been wrong
+   twice.
+5. Confirm the boundary is sealed and no bedrock is visible from anywhere a player walks.
+
+### What you are not for
+
+**Judging how anything looks.** ViaBackwards translates packets, it does not backport blocks.
+Every material newer than 1.21.11 — cherry and mangrove wood, `CHISELED_BOOKSHELF`,
+`PINK_PETALS`, `TINTED_GLASS` — reaches you as a substitute. What you see is genuinely not
+what the owner sees.
+
+Trust yourself on **"can I get from here to there"**. Never on **"does this look right"** —
+for that, ask the owner to look, or for a screenshot.

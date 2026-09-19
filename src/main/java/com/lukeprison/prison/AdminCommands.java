@@ -34,6 +34,8 @@ public class AdminCommands implements CommandExecutor {
             new Sub("mute", StaffRank.MOD, "<player> [minutes]", "stop a player talking (blank = indefinite)"),
             new Sub("unmute", StaffRank.MOD, "<player>", "lift a mute"),
             new Sub("kick", StaffRank.MOD, "<player> [reason]", "remove a player from the server"),
+            new Sub("jail", StaffRank.MOD, "<player> <minutes>", "put a player in the hole"),
+            new Sub("unjail", StaffRank.MOD, "<player>", "let a player out early"),
 
             new Sub("setrank", StaffRank.ADMIN, "<player> <A-Z|FREE>", "move a player to any prison rank"),
             new Sub("fishlevel", StaffRank.ADMIN, "<player> <1-60>", "set a fishing level directly"),
@@ -138,6 +140,20 @@ public class AdminCommands implements CommandExecutor {
                 plugin.getLogger().info("[staff] " + s.getName() + " kicked " + t.getName() + ": " + reason);
                 t.kickPlayer("§c" + reason);
                 s.sendMessage("§aKicked " + t.getName() + ".");
+            }
+            case "jail" -> {
+                Player t = target(s, a, 1);
+                if (t == null || a.length < 3) { s.sendMessage("§c/padmin jail <player> <minutes>"); return true; }
+                long minutes = parseLong(a[2]);
+                if (minutes <= 0) { s.sendMessage("§cMinutes must be positive."); return true; }
+                plugin.jail().jail(t, minutes, s.getName());
+                s.sendMessage("§aJailed " + t.getName() + " for " + minutes + " minutes.");
+            }
+            case "unjail" -> {
+                Player t = target(s, a, 1);
+                if (t == null) return true;
+                plugin.jail().release(t);
+                s.sendMessage("§aReleased " + t.getName() + ".");
             }
             case "setrank" -> {
                 Player t = target(s, a, 1);

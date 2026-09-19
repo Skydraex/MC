@@ -25,6 +25,10 @@ commands:
   autosell:
     description: Toggle selling blocks instantly as you mine
     aliases: [as]
+  rules:
+    description: Read the server rules
+  vote:
+    description: How to vote, and what you get for it
   fishing:
     description: Open the fishing pond menu
     aliases: [fish, ponds]

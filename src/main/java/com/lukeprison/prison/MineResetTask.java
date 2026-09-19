@@ -67,7 +67,9 @@ public class MineResetTask extends BukkitRunnable {
             // dropped players into the shell or the void mid-reset.
             Location safe = builder.safeMineSpot(rank);
             for (Player p : playersIn(rank)) {
-                p.teleport(safe);
+                // Forced: the teleport guard must never leave someone standing in a mine
+                // that is about to be rewritten, whatever else is true of them.
+                plugin.teleports().forced(p, () -> p.teleport(safe));
                 p.sendMessage("§eMine " + rank + " is resetting — you've been moved to the entrance.");
             }
             builder.resetMine(rank);

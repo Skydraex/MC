@@ -23,6 +23,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     private RanksGUI ranksGUI;
     private FishingManager fishingManager;
     private CrateListener crateListener;
+    private JailManager jailManager;
+    private CombatTagListener combatTag;
+    private TeleportGuard teleportGuard;
     private CoinflipManager coinflipManager;
     private ChatFormatListener chatFormat;
     private ProgressionFeatures progression;
@@ -36,6 +39,9 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
     public FishingManager fishing() { return fishingManager; }
     public WorldBuilder builder() { return worldBuilder; }
     public CrateListener crates() { return crateListener; }
+    public JailManager jail() { return jailManager; }
+    public CombatTagListener combat() { return combatTag; }
+    public TeleportGuard teleports() { return teleportGuard; }
     public CoinflipManager coinflips() { return coinflipManager; }
     public ChatFormatListener chat() { return chatFormat; }
     public PvpZoneManager pvp() { return pvpManager; }
@@ -116,6 +122,13 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         FishingCommands fishingCommands = new FishingCommands(this);
         QuestNpcManager npcManager = new QuestNpcManager(this, worldBuilder);
 
+        jailManager = new JailManager(this);
+        combatTag = new CombatTagListener(this);
+        teleportGuard = new TeleportGuard(this);
+        getServer().getPluginManager().registerEvents(jailManager, this);
+        getServer().getPluginManager().registerEvents(combatTag, this);
+        getServer().getPluginManager().registerEvents(teleportGuard, this);
+
         crateListener = new CrateListener(this);
         for (String problem : CrateData.audit()) {
             getLogger().warning("Crate loot table: " + problem);
@@ -186,6 +199,8 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getCommand("mine").setExecutor(new SimpleCommands.Mine(menuGUI));
         getCommand("enchant").setExecutor(new SimpleCommands.Enchant(enchantGUI));
         getCommand("autosell").setExecutor(new SimpleCommands.AutoSell(this));
+        getCommand("rules").setExecutor(new SimpleCommands.Rules());
+        getCommand("vote").setExecutor(new SimpleCommands.Vote());
         getCommand("fishing").setExecutor(new FishingCommands.Fishing(fishingCommands));
         getCommand("sellfish").setExecutor(new FishingCommands.SellFish(this));
         getCommand("spawn").setExecutor(new FishingCommands.Spawn(this));
@@ -206,6 +221,17 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // Dropped items are the one thing a prison server produces in dangerous quantity:
         // a mine reset with a full server in it can leave thousands of them lying around.
         new GroundItemCleanup(this).start();
+
+        jailManager.start();
+        new ServerAnnouncer(this).start();
+
+        // Periodic autosave. Everything was written to disk in onDisable and nowhere else,
+        // so a crash or a kill -9 lost every player's rank, cell and fishing progress since
+        // the server started. Five minutes is the most anyone can now lose.
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            if (rankManager != null) rankManager.save();
+            if (fishingManager != null) fishingManager.save();
+        }, 20L * 60 * 5, 20L * 60 * 5);
 
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             int online = Bukkit.getOnlinePlayers().size();

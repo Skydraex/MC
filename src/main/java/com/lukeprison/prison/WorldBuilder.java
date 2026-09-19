@@ -156,6 +156,7 @@ public class WorldBuilder {
         buildHubFloor();
         buildWatchtower();
         buildEnchanter();
+        buildJail();
         buildCellWing();
         buildCanteen();
         buildWorkoutYard();
@@ -402,7 +403,7 @@ public class WorldBuilder {
 
         for (int dy = 0; dy <= 5; dy++) {
             Material mat = (dy == 0) ? Material.POLISHED_DEEPSLATE
-                    : pier ? Material.POLISHED_DEEPSLATE_BRICKS
+                    : pier ? Material.DEEPSLATE_BRICKS
                     : (dy == 5 ? Material.DEEPSLATE_TILES : arch.pick(Architect.PRISON_STONE));
             arch.set(x, Y + dy, z, mat);
         }
@@ -410,7 +411,7 @@ public class WorldBuilder {
         arch.set(x, Y + 6, z, Material.POLISHED_DEEPSLATE);
         if (Math.floorMod(x + z, 2) == 0) arch.set(x, top, z, Material.POLISHED_DEEPSLATE_WALL);
         if (pier) {
-            arch.set(x, top, z, Material.POLISHED_DEEPSLATE_BRICKS);
+            arch.set(x, top, z, Material.DEEPSLATE_BRICKS);
             arch.set(x, top + 1, z, Material.LANTERN);
         }
         for (int dy = 8; dy <= 12; dy++) arch.set(x, Y + dy, z, Material.BARRIER);
@@ -665,6 +666,73 @@ public class WorldBuilder {
         hologramAt(0.5, Y + 3.2, ENCHANT_R + 2.5, "\u00a7d\u00a7lTHE ENCHANTER",
                 "\u00a77Hold your pickaxe and use \u00a7f/enchant",
                 "\u00a78Paid for in cash.");
+    }
+
+    // ---- The jail -------------------------------------------------------------------
+    //
+    // Under the hub, reached only by being put there. It is deliberately grim: bedrock
+    // behind the cladding, barred cells, one lamp. A prison server that cannot actually
+    // imprison anybody is missing the obvious staff tool.
+
+    private static final int JAIL_Y = Y - 14;
+    private static final int JAIL_HALF = 11;
+
+    public Location jailSpawn() {
+        return new Location(world, 0.5, JAIL_Y + 1, 0.5, 0f, 0f);
+    }
+
+    public boolean inJail(Location l) {
+        if (l == null || l.getWorld() == null || !l.getWorld().equals(world)) return false;
+        return Math.abs(l.getBlockX()) <= JAIL_HALF && Math.abs(l.getBlockZ()) <= JAIL_HALF
+                && l.getBlockY() >= JAIL_Y - 1 && l.getBlockY() <= JAIL_Y + 6;
+    }
+
+    private void buildJail() {
+        int h = JAIL_HALF;
+        for (int x = -h - 1; x <= h + 1; x++) {
+            for (int z = -h - 1; z <= h + 1; z++) {
+                boolean shell = Math.abs(x) > h || Math.abs(z) > h;
+                for (int y = JAIL_Y - 2; y <= JAIL_Y + 7; y++) {
+                    if (shell) { arch.set(x, y, z, Material.BEDROCK); continue; }
+                    if (y == JAIL_Y - 1) arch.set(x, y, z, Material.BEDROCK);
+                    else if (y == JAIL_Y) arch.set(x, y, z,
+                            ((x + z) % 4 == 0) ? Material.CRACKED_DEEPSLATE_TILES : Material.DEEPSLATE_TILES);
+                    else if (y == JAIL_Y + 6) arch.set(x, y, z, Material.DEEPSLATE_BRICKS);
+                    else arch.set(x, y, z, Material.AIR);
+                }
+            }
+        }
+        // A row of barred cells down two sides, with a bed and nothing else in each.
+        for (int side : new int[]{-1, 1}) {
+            for (int c = 0; c < 3; c++) {
+                int cz = -8 + c * 7;
+                int cx = side * (h - 5);
+                for (int dx = -2; dx <= 2; dx++) {
+                    for (int dz = -2; dz <= 2; dz++) {
+                        boolean wall = Math.abs(dx) == 2 || Math.abs(dz) == 2;
+                        for (int dy = 1; dy <= 4; dy++) {
+                            arch.set(cx + dx, JAIL_Y + dy, cz + dz,
+                                    wall ? Material.DEEPSLATE_BRICKS : Material.AIR);
+                        }
+                    }
+                }
+                // The barred face, towards the middle of the room.
+                int face = cx - side * 2;
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dy = 1; dy <= 3; dy++) {
+                        arch.set(face, JAIL_Y + dy, cz + dz, Material.IRON_BARS);
+                    }
+                }
+                placeBed(cx, JAIL_Y + 1, cz, BlockFace.SOUTH);
+                arch.set(cx, JAIL_Y + 4, cz, Material.REDSTONE_LAMP);
+            }
+        }
+        for (int x = -6; x <= 6; x += 6) {
+            arch.set(x, JAIL_Y + 5, 0, Material.LANTERN);
+        }
+        hologramAt(0.5, JAIL_Y + 3.0, 0.5, "§4§lTHE HOLE",
+                "§7You are here because staff put you here.",
+                "§8You will be let out when your time is served.");
     }
 
     // ==================================================================================
@@ -1392,14 +1460,107 @@ public class WorldBuilder {
         }
     }
 
+    // ==================================================================================
+    // Shared scenery
+    //
+    // The grounds were flat rectangles with props standing on them, on a grid. Flat ground
+    // and a grid are the two things that read as "generated" more than anything else, so
+    // these two helpers exist to break both, and every outdoor zone uses them.
+    // ==================================================================================
+
+    /**
+     * Gentle mounding around the edges of a zone.
+     *
+     * The walkable plane stays at Y — nothing here raises ground a player has to cross —
+     * but the margins roll, so the eye never sees a perfectly flat field meeting a wall at
+     * a right angle.
+     */
+    private void sceneryMounds(int[] r, int margin, Material soil, Material cap) {
+        for (int x = r[0] + 1; x <= r[2] - 1; x++) {
+            for (int z = r[1] + 1; z <= r[3] - 1; z++) {
+                int fromEdge = Math.min(Math.min(x - r[0], r[2] - x), Math.min(z - r[1], r[3] - z));
+                if (fromEdge > margin) continue;               // leave the middle walkable
+                int lift = (int) Math.round(2.4 * Math.sin(x * 0.21) * Math.cos(z * 0.17)
+                        * (1.0 - fromEdge / (double) margin));
+                if (lift <= 0) continue;
+                for (int dy = 1; dy <= lift; dy++) {
+                    arch.set(x, Y + dy, z, dy == lift ? cap : soil);
+                }
+            }
+        }
+    }
+
+    /** A winding path rather than a straight line, because nothing outdoors is straight. */
+    private void windingPath(int x1, int z1, int x2, int z2, Material surface, Material edge) {
+        int steps = Math.max(Math.abs(x2 - x1), Math.abs(z2 - z1));
+        if (steps == 0) return;
+        for (int i = 0; i <= steps; i++) {
+            double t = i / (double) steps;
+            int x = (int) Math.round(x1 + (x2 - x1) * t + 2.5 * Math.sin(t * Math.PI * 2));
+            int z = (int) Math.round(z1 + (z2 - z1) * t + 2.5 * Math.cos(t * Math.PI * 1.5));
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    boolean rim = Math.abs(dx) == 1 && Math.abs(dz) == 1;
+                    arch.set(x + dx, Y, z + dz, rim ? edge : surface);
+                    for (int dy = 1; dy <= 3; dy++) arch.set(x + dx, Y + dy, z + dz, Material.AIR);
+                }
+            }
+        }
+    }
+
+    /** Scatters ground cover on a deterministic but irregular pattern. */
+    private void scatterFoliage(int[] r, int margin, Material... options) {
+        for (int x = r[0] + margin; x <= r[2] - margin; x++) {
+            for (int z = r[1] + margin; z <= r[3] - margin; z++) {
+                if (!world.getBlockAt(x, Y, z).getType().toString().contains("GRASS")) continue;
+                if (!world.getBlockAt(x, Y + 1, z).getType().isAir()) continue;
+                long h = Math.floorMod(x * 37L + z * 53L, 100);
+                if (h >= 22) continue;
+                arch.set(x, Y + 1, z, options[(int) Math.floorMod(x + z, options.length)]);
+            }
+        }
+    }
+
     private void buildPonds(int[] r) {
         arch.fillFlat(r[0], r[1], r[2], r[3], Y, Architect.Palette.of(
                 Material.GRASS_BLOCK, Material.MOSS_BLOCK, 12, Material.COARSE_DIRT, 6));
         arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.FISHING_STONE,
                 Material.CHISELED_SANDSTONE, Material.SMOOTH_SANDSTONE, 8);
+        sceneryMounds(r, 6, Material.DIRT, Material.GRASS_BLOCK);
+
         for (FishingData.Pond pond : FishingData.PONDS.values()) digPond(pond);
+
+        // A path linking the near corner to the far one, wandering past the ponds.
+        windingPath(r[0] + 5, r[1] + 5, r[2] - 5, r[3] - 5,
+                Material.GRAVEL, Material.COBBLESTONE);
+        scatterFoliage(r, 3, Material.SHORT_GRASS, Material.TALL_GRASS,
+                Material.OXEYE_DAISY, Material.CORNFLOWER);
+
+        buildFishingHut(r[0] + 6, r[3] - 12);
         signOn(r[0] + 2, Y + 2, r[1] + 1, BlockFace.NORTH, "§b§lFISHING PONDS",
                 "/fishing to browse", "/sellfish to", "cash in.");
+    }
+
+    /** A little timber hut on the bank, so the ponds have something built beside them. */
+    private void buildFishingHut(int x, int z) {
+        arch.groundSkirt(x, z, x + 7, z + 6, Y,
+                Material.COBBLESTONE, Material.GRAVEL, Material.FLOWER_POT, Material.FERN);
+        arch.clear(x + 1, Y + 1, z + 1, x + 6, Y + 4, z + 5);
+        arch.facade(x, z, x + 7, z + 6, Y + 1, 5,
+                Architect.Palette.of(Material.SPRUCE_PLANKS, Material.STRIPPED_SPRUCE_LOG, 24),
+                Material.SPRUCE_LOG, Material.COBBLESTONE, Material.SPRUCE_PLANKS,
+                Material.SPRUCE_STAIRS, Material.GLASS_PANE, 4);
+        arch.pitchedRoof(x - 1, z - 1, x + 8, z + 7, Y + 6,
+                Material.DARK_OAK_PLANKS, Material.DARK_OAK_STAIRS);
+        arch.doorway(x + 3, Y + 1, z + 6, false, 1, 3, Material.SPRUCE_LOG);
+        arch.set(x + 1, Y + 1, z + 1, Material.BARREL);
+        arch.set(x + 6, Y + 1, z + 1, Material.CRAFTING_TABLE);
+        arch.set(x + 1, Y + 3, z + 5, Material.LANTERN);
+        // Drying racks outside, which is what a fishing hut actually has.
+        for (int i = 0; i < 4; i++) {
+            arch.set(x - 2, Y + 1, z + i, Material.OAK_FENCE);
+            arch.set(x - 2, Y + 2, z + i, Material.OAK_FENCE);
+        }
     }
 
     private void registerPondBounds() {
@@ -1415,14 +1576,40 @@ public class WorldBuilder {
         }
     }
 
+    /**
+     * A pond with a shoreline, rather than a square of water with a stone kerb.
+     *
+     * The water is an ellipse with a jittered edge, ringed by sand and gravel that fades
+     * into the grass, with reeds and lily pads on the margin. Square ponds on a grid were
+     * the single most generated-looking thing on the map.
+     */
     private void digPond(FishingData.Pond pond) {
-        for (int x = pond.x1; x <= pond.x2; x++) {
-            for (int z = pond.z1; z <= pond.z2; z++) {
-                boolean rim = x == pond.x1 || x == pond.x2 || z == pond.z1 || z == pond.z2;
-                if (rim) { arch.set(x, Y, z, Material.SMOOTH_SANDSTONE); continue; }
-                arch.set(x, Y, z, Material.WATER);
-                arch.set(x, Y - 1, z, Material.WATER);
-                arch.set(x, Y - 2, z, tierBed(pond.tier));
+        double cx = (pond.x1 + pond.x2) / 2.0, cz = (pond.z1 + pond.z2) / 2.0;
+        double rx = (pond.x2 - pond.x1) / 2.0, rz = (pond.z2 - pond.z1) / 2.0;
+
+        for (int x = pond.x1 - 2; x <= pond.x2 + 2; x++) {
+            for (int z = pond.z1 - 2; z <= pond.z2 + 2; z++) {
+                double nx = (x - cx) / rx, nz = (z - cz) / rz;
+                // The jitter is what stops it reading as a perfect ellipse.
+                double wobble = 0.14 * Math.sin(x * 0.7) * Math.cos(z * 0.6);
+                double d = Math.sqrt(nx * nx + nz * nz) + wobble;
+
+                if (d <= 0.82) {
+                    arch.set(x, Y, z, Material.WATER);
+                    arch.set(x, Y - 1, z, Material.WATER);
+                    arch.set(x, Y - 2, z, tierBed(pond.tier));
+                } else if (d <= 1.0) {
+                    arch.set(x, Y, z, Material.SAND);          // beach
+                    if (Math.floorMod(x * 5 + z * 3, 7) == 0) {
+                        arch.set(x, Y + 1, z, Material.LILY_PAD);
+                    }
+                } else if (d <= 1.22) {
+                    arch.set(x, Y, z, Math.floorMod(x + z, 3) == 0
+                            ? Material.GRAVEL : Material.COARSE_DIRT);
+                    if (Math.floorMod(x * 11 + z * 7, 5) == 0) {
+                        arch.set(x, Y + 1, z, Material.TALL_GRASS);
+                    }
+                }
             }
         }
         hologramAt((pond.x1 + pond.x2) / 2.0 + 0.5, Y + 2.2, (pond.z1 + pond.z2) / 2.0 + 0.5,
@@ -1442,24 +1629,100 @@ public class WorldBuilder {
                 Material.GRASS_BLOCK, Material.COARSE_DIRT, 10, Material.PODZOL, 8));
         arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.FISHING_STONE,
                 Material.STRIPPED_OAK_LOG, Material.SMOOTH_SANDSTONE, 10);
+        sceneryMounds(r, 6, Material.DIRT, Material.PODZOL);
+
+        // Trees were on a 9-block grid, all identical, all oak. A plantation reads as a
+        // plantation; a wood has to be irregular in spacing, species and height.
         treeBases.clear();
-        for (int x = r[0] + 8; x <= r[2] - 8; x += 9) {
-            for (int z = r[1] + 8; z <= r[3] - 8; z += 9) treeBases.add(new int[]{x, Y + 1, z});
+        for (int x = r[0] + 8; x <= r[2] - 8; x += 7) {
+            for (int z = r[1] + 8; z <= r[3] - 8; z += 7) {
+                long h = Math.floorMod(x * 17L + z * 29L, 100);
+                if (h < 18) continue;                       // clearings
+                int jx = (int) Math.floorMod(x * 3L + z, 5) - 2;
+                int jz = (int) Math.floorMod(z * 7L + x, 5) - 2;
+                treeBases.add(new int[]{x + jx, Y + 1, z + jz});
+            }
         }
         for (int[] b : treeBases) plantTree(b[0], b[1], b[2]);
+
+        windingPath(r[0] + 4, r[1] + 6, r[2] - 4, r[3] - 6, Material.COARSE_DIRT, Material.PODZOL);
+        scatterFoliage(r, 3, Material.FERN, Material.SHORT_GRASS,
+                Material.BROWN_MUSHROOM, Material.RED_MUSHROOM);
+
+        buildSawmill(r[2] - 14, r[1] + 4);
         signOn(r[0] + 2, Y + 2, r[3] - 1, BlockFace.SOUTH, "§2§lLOGGING YARD",
                 "Chop the trees.", "They regrow", "over time.");
     }
 
+    /** The working end of the yard: a mill, stacked timber and sawn stumps. */
+    private void buildSawmill(int x, int z) {
+        arch.groundSkirt(x, z, x + 9, z + 7, Y,
+                Material.COBBLESTONE, Material.GRAVEL, Material.FLOWER_POT, Material.FERN);
+        arch.clear(x + 1, Y + 1, z + 1, x + 8, Y + 5, z + 6);
+        arch.facade(x, z, x + 9, z + 7, Y + 1, 6,
+                Architect.Palette.of(Material.SPRUCE_PLANKS, Material.STRIPPED_SPRUCE_LOG, 20),
+                Material.SPRUCE_LOG, Material.COBBLESTONE, Material.SPRUCE_PLANKS,
+                Material.SPRUCE_STAIRS, Material.GLASS_PANE, 4);
+        arch.pitchedRoof(x - 1, z - 1, x + 10, z + 8, Y + 7,
+                Material.DARK_OAK_PLANKS, Material.DARK_OAK_STAIRS);
+        arch.doorway(x + 4, Y + 1, z + 7, false, 1, 3, Material.SPRUCE_LOG);
+
+        // Timber stacked outside, and stumps where trees came down.
+        for (int i = 0; i < 6; i++) {
+            for (int layer = 0; layer < 3 - i / 3; layer++) {
+                arch.set(x - 3, Y + 1 + layer, z + i, Material.OAK_LOG);
+                arch.set(x - 4, Y + 1 + layer, z + i, Material.SPRUCE_LOG);
+            }
+        }
+        for (int[] st : new int[][]{{x - 7, z + 2}, {x - 6, z + 8}, {x + 3, z + 11}}) {
+            arch.set(st[0], Y + 1, st[1], Material.OAK_LOG);
+            arch.set(st[0] + 1, Y + 1, st[1], Material.STRIPPED_OAK_LOG);
+        }
+    }
+
+    /**
+     * One tree, varied by position so no two neighbours match.
+     *
+     * Deterministic, not random: regrowTrees() has to rebuild the same tree in the same
+     * place after it is chopped, and Math.random() would give a different one each time.
+     */
     private void plantTree(int x, int y, int z) {
-        for (int dy = 0; dy < 5; dy++) arch.set(x, y + dy, z, Material.OAK_LOG);
-        for (int dy = 3; dy <= 5; dy++) {
-            int radius = dy == 5 ? 1 : 2;
+        long seed = Math.floorMod(x * 73L + z * 151L, 100);
+        Material log, leaf;
+        if (seed < 45) { log = Material.OAK_LOG; leaf = Material.OAK_LEAVES; }
+        else if (seed < 75) { log = Material.SPRUCE_LOG; leaf = Material.SPRUCE_LEAVES; }
+        else if (seed < 92) { log = Material.BIRCH_LOG; leaf = Material.BIRCH_LEAVES; }
+        else { log = Material.DARK_OAK_LOG; leaf = Material.DARK_OAK_LEAVES; }
+
+        int trunk = 4 + (int) (seed % 4);
+        boolean conifer = log == Material.SPRUCE_LOG;
+
+        for (int dy = 0; dy < trunk; dy++) arch.set(x, y + dy, z, log);
+
+        if (conifer) {
+            // Tapering tiers, which is what makes a spruce read as a spruce.
+            for (int dy = trunk - 4, radius = 3; dy <= trunk; dy++, radius--) {
+                if (dy < 1) continue;
+                for (int dx = -Math.max(radius, 0); dx <= Math.max(radius, 0); dx++) {
+                    for (int dz = -Math.max(radius, 0); dz <= Math.max(radius, 0); dz++) {
+                        if (dx == 0 && dz == 0 && dy < trunk) continue;
+                        if (Math.abs(dx) + Math.abs(dz) > radius + 1) continue;
+                        arch.set(x + dx, y + dy, z + dz, leaf);
+                    }
+                }
+            }
+            arch.set(x, y + trunk + 1, z, leaf);
+            return;
+        }
+        for (int dy = trunk - 2; dy <= trunk + 1; dy++) {
+            int radius = (dy >= trunk) ? 1 : 2;
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    if (dx == 0 && dz == 0 && dy < 5) continue;
-                    if (Math.abs(dx) == radius && Math.abs(dz) == radius && Math.random() < 0.5) continue;
-                    arch.set(x + dx, y + dy, z + dz, Material.OAK_LEAVES);
+                    if (dx == 0 && dz == 0 && dy < trunk) continue;
+                    // Corner-trimmed on a fixed pattern, so the canopy is not a cube.
+                    if (Math.abs(dx) == radius && Math.abs(dz) == radius
+                            && Math.floorMod(x + z + dy, 2) == 0) continue;
+                    arch.set(x + dx, y + dy, z + dz, leaf);
                 }
             }
         }
@@ -1477,12 +1740,14 @@ public class WorldBuilder {
                 Material.GRASS_BLOCK, Material.COARSE_DIRT, 12));
         arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], 4, Architect.FISHING_STONE,
                 Material.STRIPPED_OAK_LOG, Material.SMOOTH_SANDSTONE, 8);
+        sceneryMounds(r, 5, Material.DIRT, Material.GRASS_BLOCK);
 
-        // Two pens sharing a central fence line, with real gates. Architect.relinkConnectables()
-        // computes the fence joins after the build — without it each post stands alone and
-        // animals (and players) walk straight between them.
         int midX = (r[0] + r[2]) / 2;
-        int penZ1 = r[1] + 4, penZ2 = r[3] - 4;
+        int penZ1 = r[1] + 8, penZ2 = r[3] - 6;
+
+        // Two paddocks sharing a central fence line, with real gates. The fence joins are
+        // computed by Architect.relinkConnectables() after the build — without that each
+        // post stands alone and animals walk straight between them.
         for (int z = penZ1; z <= penZ2; z++) arch.set(midX, Y + 1, z, Material.OAK_FENCE);
         for (int[] pen : new int[][]{{r[0] + 4, midX}, {midX, r[2] - 4}}) {
             for (int x = pen[0]; x <= pen[1]; x++) {
@@ -1493,19 +1758,81 @@ public class WorldBuilder {
                 arch.set(pen[0], Y + 1, z, Material.OAK_FENCE);
                 arch.set(pen[1], Y + 1, z, Material.OAK_FENCE);
             }
-            arch.set((pen[0] + pen[1]) / 2, Y + 1, penZ2, Material.OAK_FENCE_GATE);
+            int gate = (pen[0] + pen[1]) / 2;
+            arch.set(gate, Y + 1, penZ2, Material.OAK_FENCE_GATE);
+
+            // Trodden ground inside the paddock, a water trough and a feed bale, so a pen
+            // is somewhere animals live rather than an empty fenced square of lawn.
+            for (int x = pen[0] + 1; x < pen[1]; x++) {
+                for (int z = penZ1 + 1; z < penZ2; z++) {
+                    if (Math.floorMod(x * 13 + z * 7, 6) == 0) arch.set(x, Y, z, Material.DIRT_PATH);
+                    else if (Math.floorMod(x * 5 + z * 11, 9) == 0) arch.set(x, Y, z, Material.COARSE_DIRT);
+                }
+            }
+            int tx = (pen[0] + pen[1]) / 2, tz = penZ1 + 3;
+            for (int d = -1; d <= 1; d++) {
+                arch.set(tx + d, Y, tz, Material.WATER);
+                arch.set(tx + d, Y + 1, tz - 1, Material.COBBLESTONE_WALL);
+                arch.set(tx + d, Y + 1, tz + 1, Material.COBBLESTONE_WALL);
+            }
+            arch.set(tx - 3, Y + 1, penZ2 - 3, Material.HAY_BLOCK);
+            arch.set(tx - 3, Y + 2, penZ2 - 3, Material.HAY_BLOCK);
         }
         placeAnimalSpawner(r[0] + (midX - r[0]) / 2, Y + 1, (penZ1 + penZ2) / 2, EntityType.COW);
         placeAnimalSpawner(midX + (r[2] - midX) / 2, Y + 1, (penZ1 + penZ2) / 2, EntityType.PIG);
 
-        int bx = midX - 6, bz = r[1] + 1;
-        arch.detailedWall(bx, Y + 1, bz, bx + 12, bz + 2, 5, Architect.Palette.of(
-                        Material.SPRUCE_PLANKS, Material.STRIPPED_SPRUCE_LOG, 30),
-                Material.SPRUCE_LOG, Material.SPRUCE_PLANKS, 4);
-        arch.roofWithOverhang(bx, bz, bx + 12, bz + 2, Y + 7,
-                Material.DARK_OAK_PLANKS, Material.DARK_OAK_STAIRS);
+        buildBarn(midX - 8, r[1] + 1);
+        cropField(r[0] + 4, r[1] + 1, r[0] + 14, r[1] + 6);
+        cropField(r[2] - 14, r[1] + 1, r[2] - 4, r[1] + 6);
+        windingPath(midX, r[1] + 8, midX, r[3] - 3, Material.DIRT_PATH, Material.COARSE_DIRT);
+
         signOn(r[0] + 2, Y + 2, r[1] + 1, BlockFace.NORTH, "§6§lFARM",
                 "Cows west,", "pigs east.", "Mind the gates.");
+    }
+
+    /** A proper barn: facade, pitched roof, hay loft doors and a lit porch. */
+    private void buildBarn(int x, int z) {
+        arch.groundSkirt(x, z, x + 16, z + 6, Y,
+                Material.COBBLESTONE, Material.GRAVEL, Material.FLOWER_POT, Material.DANDELION);
+        arch.clear(x + 1, Y + 1, z + 1, x + 15, Y + 6, z + 5);
+        arch.facade(x, z, x + 16, z + 6, Y + 1, 7,
+                Architect.Palette.of(Material.SPRUCE_PLANKS, Material.STRIPPED_SPRUCE_LOG, 18,
+                        Material.RED_TERRACOTTA, 10),
+                Material.SPRUCE_LOG, Material.COBBLESTONE, Material.SPRUCE_PLANKS,
+                Material.SPRUCE_STAIRS, Material.GLASS_PANE, 5);
+        arch.pitchedRoof(x - 1, z - 1, x + 17, z + 7, Y + 8,
+                Material.DARK_OAK_PLANKS, Material.DARK_OAK_STAIRS);
+        arch.doorway(x + 8, Y + 1, z + 6, false, 2, 4, Material.SPRUCE_LOG);
+        for (int i = 0; i < 3; i++) {
+            arch.set(x + 2 + i * 6, Y + 1, z + 1, Material.HAY_BLOCK);
+            arch.set(x + 2 + i * 6, Y + 2, z + 1, Material.HAY_BLOCK);
+        }
+        arch.set(x + 6, Y + 4, z + 6, Material.LANTERN);
+        arch.set(x + 10, Y + 4, z + 6, Material.LANTERN);
+    }
+
+    /** Crop rows with a water channel down the middle, the way a field is actually laid out. */
+    private void cropField(int x1, int z1, int x2, int z2) {
+        int channel = (z1 + z2) / 2;
+        for (int x = x1; x <= x2; x++) {
+            for (int z = z1; z <= z2; z++) {
+                if (z == channel) {
+                    arch.set(x, Y, z, Material.WATER);
+                    continue;
+                }
+                arch.set(x, Y, z, Material.FARMLAND);
+                Material crop = switch ((int) Math.floorMod(z - z1, 3)) {
+                    case 0 -> Material.WHEAT;
+                    case 1 -> Material.CARROTS;
+                    default -> Material.POTATOES;
+                };
+                arch.set(x, Y + 1, z, crop);
+            }
+        }
+        for (int x = x1 - 1; x <= x2 + 1; x++) {
+            arch.set(x, Y + 1, z1 - 1, Material.OAK_FENCE);
+            arch.set(x, Y + 1, z2 + 1, Material.OAK_FENCE);
+        }
     }
 
     private void placeAnimalSpawner(int x, int y, int z, EntityType type) {

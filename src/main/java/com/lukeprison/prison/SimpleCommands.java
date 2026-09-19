@@ -53,6 +53,36 @@ public class SimpleCommands {
         }
     }
 
+    /** The rules, in plain text. A prison server needs them somewhere a player can read. */
+    public static class Rules implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender s, Command c, String l, String[] a) {
+            s.sendMessage("§8§m                                        ");
+            s.sendMessage("§6§lSKY PRISON RULES");
+            s.sendMessage("§7 1. No hacked clients, X-ray or exploits.");
+            s.sendMessage("§7 2. No griefing another player's cell.");
+            s.sendMessage("§7 3. No advertising other servers.");
+            s.sendMessage("§7 4. No spam, harassment or slurs.");
+            s.sendMessage("§7 5. Report economy bugs — do not farm them.");
+            s.sendMessage("§7 6. Ban evasion means a longer ban.");
+            s.sendMessage("§8Staff can jail you for breaking these. §7/help §8for commands.");
+            return true;
+        }
+    }
+
+    /** Where to vote. Keys are awarded by the vote listener when the site calls back. */
+    public static class Vote implements CommandExecutor {
+        @Override
+        public boolean onCommand(CommandSender s, Command c, String l, String[] a) {
+            s.sendMessage("§8§m                                        ");
+            s.sendMessage("§6§lVOTE FOR SKY PRISON");
+            s.sendMessage("§7Every vote gets you a §eVote Key§7.");
+            s.sendMessage("§7You can vote once per site, every day.");
+            s.sendMessage("§8Links are on the server list page.");
+            return true;
+        }
+    }
+
     public static class AutoSell implements CommandExecutor {
         private final PrisonPlugin plugin;
         public AutoSell(PrisonPlugin plugin) { this.plugin = plugin; }

@@ -59,6 +59,8 @@ public class PrisonWorldGenerator extends ChunkGenerator {
      */
     private static final int CLIFF_END = COMPOUND_HALF + 14;
     private static final int MOAT_END = CLIFF_END + 26;
+    /** Outer edge of the water, so the causeway knows how far it has to reach. */
+    public static final int MOAT_OUTER_EDGE = MOAT_END;
     private static final int MOAT_FLOOR = GROUND_FLOOR + 1;
     private static final int MOAT_LEVEL = GROUND_FLOOR + 4;
 

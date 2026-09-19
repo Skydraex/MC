@@ -437,7 +437,10 @@ public class WorldBuilder {
 
         // --- Causeway: deck on piers, out across the moat ---
         int deckY = PrisonWorldGenerator.COMPOUND_Y;
-        for (int x = gx - 1; x >= gx - 52; x--) {
+        // Long enough to cross the cliff AND the moat and land on the far bank. The first
+        // version stopped at the plateau edge, which left a pier standing in a field.
+        int deckEnd = gx - (PrisonWorldGenerator.MOAT_OUTER_EDGE + 8 - Math.abs(gx));
+        for (int x = gx - 1; x >= deckEnd; x--) {
             for (int dz = -4; dz <= 4; dz++) {
                 boolean parapet = Math.abs(dz) == 4;
                 arch.set(x, deckY, gz + dz, parapet ? Material.POLISHED_ANDESITE

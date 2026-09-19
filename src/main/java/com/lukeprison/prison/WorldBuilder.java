@@ -674,6 +674,18 @@ public class WorldBuilder {
         for (int dx = -3; dx <= 3; dx++) {
             for (int dz = -3; dz <= 3; dz++) arch.set(dx, Y + 1, dz, Material.CHISELED_POLISHED_BLACKSTONE);
         }
+        // A second course around the plinth's rim — which is what the four directory signs
+        // actually hang on. They were written as wall signs against thin air, so applySigns
+        // rescued every one onto a fence post: four posts standing on the four spoke
+        // centrelines, twenty paces from where a player spawns. The kerb backs them properly
+        // and gets them out of the walkway, and it reads as a stepped base for the tower.
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) == 3) {
+                    arch.set(dx, Y + 2, dz, Material.POLISHED_BLACKSTONE_BRICKS);
+                }
+            }
+        }
         // The watchtower has to be the tallest thing in the prison, or the cell block is,
         // and a cell block that out-tops the tower reads as an office park. Every reference
         // build has one structure the eye goes to first; this is that structure.
@@ -2423,9 +2435,16 @@ public class WorldBuilder {
         // blocks above the rim; a lantern left at roof height, or even halfway down, leaves
         // the ore face at light 0 — which is both unpleasant to mine and enough for hostile
         // mobs to spawn on the very surface players work.
-        int lampY = d.oreTop + 4;
-        for (int x = p[0] + 4; x <= p[2] - 4; x += 8) {
-            for (int z = p[1] + 4; z <= p[3] - 4; z += 8) {
+        // The grid was anchored at the pit's low edge and stepped by 8 until it ran out, so a
+        // pit whose width was not a multiple of 8 got a margin up to seven blocks wide with
+        // nothing over it at all — and at 8 apart even the lit middle fell to light 4. That is
+        // the 296 dark ore tiles. Spread the lanterns evenly across the pit instead, four
+        // apart, one block in from the walls: worst tile on the ore is light 9 at every mine
+        // width. They hang at oreTop + 3, which is one block clear of a player's head when
+        // standing on the ore, and well above anything that gets mined.
+        int lampY = d.oreTop + 3;
+        for (int x : spread(p[0] + 1, p[2] - 1, 4)) {
+            for (int z : spread(p[1] + 1, p[3] - 1, 4)) {
                 for (int y = PIT_CEILING - 1; y > lampY; y--) {
                     arch.set(x, y, z, Material.IRON_BARS);
                 }
@@ -2435,11 +2454,11 @@ public class WorldBuilder {
         // And lights set into the pit's own walls, so it stays lit as it is mined out.
         // Players break ore, not the cladding, so these survive a full dig to the floor.
         for (int y = d.oreBottom + 2; y <= d.oreTop; y += 5) {
-            for (int x = p[0] - 1; x <= p[2] + 1; x += 7) {
+            for (int x : spread(p[0] - 1, p[2] + 1, 7)) {       // spread, for the same reason
                 arch.set(x, y, p[1] - 1, Material.SEA_LANTERN);
                 arch.set(x, y, p[3] + 1, Material.SEA_LANTERN);
             }
-            for (int z = p[1] - 1; z <= p[3] + 1; z += 7) {
+            for (int z : spread(p[1] - 1, p[3] + 1, 7)) {
                 arch.set(p[0] - 1, y, z, Material.SEA_LANTERN);
                 arch.set(p[2] + 1, y, z, Material.SEA_LANTERN);
             }
@@ -2496,6 +2515,23 @@ public class WorldBuilder {
             if (Math.abs(c - (centre + along)) <= 1) return true;
         }
         return Math.abs(x - d.landing[0]) <= 2 && Math.abs(z - d.landing[2]) <= 2;
+    }
+
+    /**
+     * Evenly spaced positions across {@code [lo, hi]}, at a pitch of at most {@code step}, with
+     * equal margins at both ends.
+     *
+     * A plain {@code for (i = lo; i <= hi; i += step)} anchors everything at the low edge and
+     * leaves whatever does not divide evenly as dead space at the high edge. On a lantern grid
+     * that dead space is a dark strip; on anything else it is a visible asymmetry.
+     */
+    private static int[] spread(int lo, int hi, int step) {
+        int span = hi - lo;
+        if (span <= 0 || span < step) return new int[]{(lo + hi) / 2};
+        int n = span / step + 1;
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) out[i] = lo + Math.round(i * span / (float) (n - 1));
+        return out;
     }
 
     private void minerLamp(int x, int z) {

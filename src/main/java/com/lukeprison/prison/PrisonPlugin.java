@@ -229,16 +229,16 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // spawns inside blocks, culled signs and dead commands in under a second - all of
         // which used to be found by a person walking into them and reporting it.
         Bukkit.getScheduler().runTaskLater(this, () -> {
-            MapAuditor world = new MapAuditor(worldBuilder);
-            world.runAll();
+            MapAuditor worldAudit = new MapAuditor(worldBuilder);
+            worldAudit.runAll();
             SystemAudit system = new SystemAudit(this);
             system.runAll();
-            int total = world.getFindings().size() + system.getFindings().size();
+            int total = worldAudit.getFindings().size() + system.getFindings().size();
             if (total == 0) {
                 getLogger().info("Startup audit: PASS - world and plugin both check out.");
             } else {
                 getLogger().warning("Startup audit: " + total + " problem(s) found.");
-                for (MapAuditor.Finding f : world.getFindings()) {
+                for (MapAuditor.Finding f : worldAudit.getFindings()) {
                     getLogger().warning("  [" + f.category() + "] " + f);
                 }
                 for (SystemAudit.Finding f : system.getFindings()) {

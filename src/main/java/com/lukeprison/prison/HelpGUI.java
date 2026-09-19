@@ -57,7 +57,6 @@ public class HelpGUI implements Listener {
                 new Entry("/warps", "Pick a mine from a menu instead"),
                 new Entry("/sell", "Sell your inventory of mined blocks"),
                 new Entry("/autosell", "Toggle instant selling while mining"),
-                new Entry("/tokens", "Check your token balance"),
                 new Entry("/shop", "Buy and sell gear"))));
 
         add(new Category("Ranks & Prestige", Material.GOLDEN_HELMET,
@@ -68,9 +67,8 @@ public class HelpGUI implements Listener {
                 new Entry("/top", "Leaderboards — money, blocks, prestige"))));
 
         add(new Category("Enchants", Material.ENCHANTING_TABLE,
-                "Spending tokens on your pickaxe", List.of(
+                "Enchanting your pickaxe", List.of(
                 new Entry("/enchant", "The enchant menu"),
-                new Entry("/tokens", "How many tokens you have"),
                 new Entry("Efficiency", "Mine faster — unlocks at rank A"),
                 new Entry("Fortune", "More drops per block — rank C"),
                 new Entry("Explosive", "Chance to blast 3x3x3 — rank M"))));

@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Random;
 
 /**
- * The core mining loop: awards tokens, counts blocks, applies custom enchant effects
+ * The core mining loop: counts blocks, applies custom enchant effects
  * (Explosive, Jackhammer, Fortune, Auto-Smelt), and handles auto-sell.
  */
 public class MiningListener implements Listener {
@@ -62,35 +62,12 @@ public class MiningListener implements Listener {
         Map<Material, Integer> haul = new HashMap<>();
         addHaul(haul, block.getType(), primaryAmount);
 
-        // Explosive: blast a 3x3x3 around the broken block (drops counted 1:1, no Fortune).
-        int explosive = PickaxeEnchants.getLevel(pick, "explosive");
-        if (explosive > 0 && random.nextInt(100) < explosive * 5) {
-            blocksBroken += blastArea(block.getLocation(), 1, mine, haul);
-        }
+        // Explosive and Auto-Smelt used to sit here. Both are removed: an enchant that
+        // clears a 3x3x3 per swing is the defining mechanic of OP prison, and auto-smelting
+        // takes the "carry it back and sell it" half of the loop out of the game. What the
+        // pickaxe does now is break one block faster, which is what a pickaxe does.
 
-        // Auto-smelt: convert ores to their smelted form.
-        if (PickaxeEnchants.getLevel(pick, "autosmelt") > 0) {
-            Map<Material, Integer> smelted = new HashMap<>();
-            for (Map.Entry<Material, Integer> entry : haul.entrySet()) {
-                smelted.merge(smelt(entry.getKey()), entry.getValue(), Integer::sum);
-            }
-            haul.clear();
-            haul.putAll(smelted);
-        }
-
-        // Block counter + tokens.
         for (int i = 0; i < blocksBroken; i++) plugin.ranks().addBlockMined(p);
-
-        // Baseline drip: 1 token per 10 blocks, with the remainder handled probabilistically so
-        // a plain single-block break still pays out sometimes (integer division would floor to 0
-        // forever, leaving an unenchanted player unable to ever afford their first enchant).
-        long tokensEarned = blocksBroken / 10;
-        if (random.nextInt(10) < (blocksBroken % 10)) tokensEarned += 1;
-        int tokenator = PickaxeEnchants.getLevel(pick, "tokenator");
-        if (tokenator > 0 && random.nextInt(100) < tokenator * 4) {
-            tokensEarned += 1 + random.nextInt(tokenator);
-        }
-        if (tokensEarned > 0) plugin.ranks().addTokens(p, tokensEarned);
 
         // Rare chance of a crate key from mining.
         if (plugin.crates() != null) plugin.crates().rollMiningKey(p, blocksBroken);
@@ -118,25 +95,6 @@ public class MiningListener implements Listener {
     }
 
     /** Breaks a cube of the given radius, staying inside the mine's bounds. */
-    private int blastArea(Location center, int radius, String mine, Map<Material, Integer> haul) {
-        int broken = 0;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dy = -radius; dy <= radius; dy++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    if (dx == 0 && dy == 0 && dz == 0) continue;
-                    Block b = center.getWorld().getBlockAt(
-                            center.getBlockX() + dx, center.getBlockY() + dy, center.getBlockZ() + dz);
-                    if (b.getType() == Material.AIR || b.getType() == Material.BEDROCK) continue;
-                    if (!mine.equals(mineAt(b.getX(), b.getY(), b.getZ()))) continue;
-                    addHaul(haul, b.getType(), 1);
-                    b.setType(Material.AIR);
-                    broken++;
-                }
-            }
-        }
-        return broken;
-    }
-
     /**
      * Price for a material in this mine. Returns 0 for anything that isn't one of the
      * mine's own blocks (or a smelted form of one) — a permissive fallback would let a

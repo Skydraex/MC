@@ -20,11 +20,8 @@ commands:
     description: Warp straight to a mine (your rank or below) - e.g. /mine C
     usage: /mine <rank>
   enchant:
-    description: Spend tokens on pickaxe enchants
+    description: Apply enchants to your pickaxe, at the enchanter
     aliases: [enchants, ce]
-  tokens:
-    description: Check your token balance
-    aliases: [token, bal-tokens]
   autosell:
     description: Toggle selling blocks instantly as you mine
     aliases: [as]
@@ -57,5 +54,35 @@ commands:
     description: Open the server shop
     aliases: [store]
 permissions:
+  # The staff ladder. Each rung inherits the one below it, so granting
+  # prison.staff.admin carries Helper and Moderator with it.
+  #
+  # Anything that puts an item or a balance into a player's hands sits at
+  # superadmin or above, on purpose: it is the one kind of staff abuse that
+  # cannot be undone, because the items are spent or traded before anyone looks.
+  prison.staff.helper:
+    description: Look up players, warn, see who is on staff
+    default: false
+  prison.staff.mod:
+    description: Mute and kick
+    default: false
+    children:
+      prison.staff.helper: true
+  prison.staff.admin:
+    description: Set ranks, reset players, run the map check
+    default: op
+    children:
+      prison.staff.mod: true
+  prison.staff.superadmin:
+    description: Hand out keys, gear and money
+    default: false
+    children:
+      prison.staff.admin: true
+  prison.staff.owner:
+    description: Everything, including rebuilding the world
+    default: false
+    children:
+      prison.staff.superadmin: true
   prison.admin:
+    description: Legacy node, treated as Admin
     default: op

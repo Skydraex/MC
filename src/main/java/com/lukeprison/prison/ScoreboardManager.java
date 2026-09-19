@@ -35,7 +35,6 @@ public class ScoreboardManager {
 
         setLine(board, obj, 6, "§7Rank: §e" + rankLine);
         setLine(board, obj, 5, "§7Balance: §a$" + format(balance));
-        setLine(board, obj, 4, "§7Tokens: §b" + plugin.ranks().getTokens(p));
         setLine(board, obj, 3, "§7Next: " + nextLine);
         setLine(board, obj, 2, " ");
         setLine(board, obj, 1, "§7Sky Prison");

@@ -53,17 +53,6 @@ public class SimpleCommands {
         }
     }
 
-    public static class Tokens implements CommandExecutor {
-        private final PrisonPlugin plugin;
-        public Tokens(PrisonPlugin plugin) { this.plugin = plugin; }
-        @Override
-        public boolean onCommand(CommandSender s, Command c, String l, String[] a) {
-            if (s instanceof Player p) {
-                p.sendMessage("§eYou have §f" + plugin.ranks().getTokens(p) + " §etokens.");
-                p.sendMessage("§7Spend them on pickaxe enchants with /enchant.");
-            }
-            return true;
-        }
     }
 
     public static class AutoSell implements CommandExecutor {

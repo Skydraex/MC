@@ -79,7 +79,6 @@ public class CrateListener implements Listener {
             double pct = (r.weight / (double) total) * standardShare;
             org.bukkit.Material icon = switch (r.kind) {
                 case MONEY -> org.bukkit.Material.GOLD_INGOT;
-                case TOKENS -> org.bukkit.Material.SUNFLOWER;
                 case ITEM -> r.material == null ? org.bukkit.Material.CHEST : r.material;
                 case JACKPOT -> org.bukkit.Material.NETHER_STAR;
             };
@@ -183,10 +182,6 @@ public class CrateListener implements Listener {
             case MONEY -> {
                 plugin.economy().depositPlayer(p, reward.money);
                 p.sendMessage("§aYou won §6" + reward.display + "§a!");
-            }
-            case TOKENS -> {
-                plugin.ranks().addTokens(p, reward.tokens);
-                p.sendMessage("§aYou won §b" + reward.display + "§a!");
             }
             case ITEM -> {
                 // buildItem, not a bare ItemStack: gear rewards carry a name and enchantments.

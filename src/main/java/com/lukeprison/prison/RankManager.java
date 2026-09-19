@@ -16,7 +16,6 @@ public class RankManager {
     private final Map<UUID, String> ranks = new HashMap<>();
     private final Map<UUID, Integer> prestige = new HashMap<>();
     private final java.util.Set<UUID> kitGiven = new java.util.HashSet<>();
-    private final Map<UUID, Long> tokens = new HashMap<>();
     private final Map<UUID, Long> blocksMined = new HashMap<>();
     private final java.util.Set<UUID> autoSell = new java.util.HashSet<>();
     private final Map<UUID, Long> lastDaily = new HashMap<>();
@@ -41,7 +40,6 @@ public class RankManager {
             ranks.put(id, yaml.getString(key + ".rank", "A"));
             prestige.put(id, yaml.getInt(key + ".prestige", 0));
             if (yaml.getBoolean(key + ".kit", false)) kitGiven.add(id);
-            tokens.put(id, yaml.getLong(key + ".tokens", 0));
             blocksMined.put(id, yaml.getLong(key + ".blocks", 0));
             if (yaml.getBoolean(key + ".autosell", false)) autoSell.add(id);
             lastDaily.put(id, yaml.getLong(key + ".daily.last", 0));
@@ -63,7 +61,6 @@ public class RankManager {
             yaml.set(e.getKey() + ".rank", e.getValue());
             yaml.set(e.getKey() + ".prestige", prestige.getOrDefault(e.getKey(), 0));
             yaml.set(e.getKey() + ".kit", kitGiven.contains(e.getKey()));
-            yaml.set(e.getKey() + ".tokens", tokens.getOrDefault(e.getKey(), 0L));
             yaml.set(e.getKey() + ".blocks", blocksMined.getOrDefault(e.getKey(), 0L));
             yaml.set(e.getKey() + ".autosell", autoSell.contains(e.getKey()));
             yaml.set(e.getKey() + ".daily.last", lastDaily.getOrDefault(e.getKey(), 0L));
@@ -75,15 +72,6 @@ public class RankManager {
             yaml.set(e.getKey() + ".cellExpiry", owned > 0 ? cellExpiry.getOrDefault(owned, 0L) : 0L);
         }
         try { yaml.save(file); } catch (IOException e) { e.printStackTrace(); }
-    }
-
-    public long getTokens(Player p) { return tokens.getOrDefault(p.getUniqueId(), 0L); }
-    public void addTokens(Player p, long amount) { tokens.merge(p.getUniqueId(), amount, Long::sum); }
-    public boolean spendTokens(Player p, long amount) {
-        long have = getTokens(p);
-        if (have < amount) return false;
-        tokens.put(p.getUniqueId(), have - amount);
-        return true;
     }
 
     public long getBlocksMined(Player p) { return blocksMined.getOrDefault(p.getUniqueId(), 0L); }
@@ -145,7 +133,6 @@ public class RankManager {
         UUID id = p.getUniqueId();
         ranks.put(id, "A");
         prestige.put(id, 0);
-        tokens.put(id, 0L);
         blocksMined.put(id, 0L);
         autoSell.remove(id);
         kitGiven.remove(id);

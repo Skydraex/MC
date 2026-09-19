@@ -41,12 +41,10 @@ public class ProgressionFeatures {
             plugin.ranks().recordDaily(p, streak);
 
             // Escalating rewards, with a key every 7th day.
-            long money = 1500L * Math.min(streak, 14);
-            long tokens = 40L * Math.min(streak, 14);
+            long money = 2500L * Math.min(streak, 14);
             plugin.economy().depositPlayer(p, money);
-            plugin.ranks().addTokens(p, tokens);
             p.sendMessage("§a§lDAILY REWARD §7(streak " + streak + ")");
-            p.sendMessage("§7  +§6$" + String.format("%,d", money) + "  §7+§b" + tokens + " tokens");
+            p.sendMessage("§7  +§6$" + String.format("%,d", money));
             if (streak % 7 == 0) {
                 plugin.crates().giveKey(p, "vote");
                 p.sendMessage("§7  +§eVote Key §7(7-day streak bonus)");
@@ -66,11 +64,11 @@ public class ProgressionFeatures {
         for (long m : MILESTONES) {
             if (blocks < m) break;
             if (!plugin.ranks().claimMilestone(p, m)) continue;
-            long tokens = m / 100;
-            plugin.ranks().addTokens(p, tokens);
+            long money = m * 4;
+            plugin.economy().depositPlayer(p, money);
             p.sendMessage("");
             p.sendMessage("§6§lMILESTONE §f" + String.format("%,d", m) + " blocks mined!");
-            p.sendMessage("§7  +§b" + tokens + " tokens");
+            p.sendMessage("§7  +§6$" + String.format("%,d", money));
             if (m >= 50_000) {
                 plugin.crates().giveKey(p, "miner");
                 p.sendMessage("§7  +§bMiner Key");

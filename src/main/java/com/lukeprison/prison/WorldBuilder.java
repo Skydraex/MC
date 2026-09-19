@@ -155,6 +155,7 @@ public class WorldBuilder {
         buildHubShell();
         buildHubFloor();
         buildWatchtower();
+        buildEnchanter();
         buildCellWing();
         buildCanteen();
         buildWorkoutYard();
@@ -568,6 +569,61 @@ public class WorldBuilder {
         signOn(4, Y + 2, 0, BlockFace.EAST, "§a§lGREY PATHS", "are safe zones.", "Walkways, plaza", "and buildings.");
     }
 
+    // ---- The enchanter ------------------------------------------------------------
+    //
+    // Deliberately in the middle of the plaza, at the foot of the watchtower, rather than
+    // tucked inside a building or behind an NPC. Everyone walks through the plaza, so the
+    // enchanter is somewhere players run into each other — which a command you can type
+    // from inside your own cell is not.
+
+    private static final int ENCHANT_R = 7;
+
+    public Location enchanterLocation() {
+        return new Location(world, 0.5, Y + 1, ENCHANT_R + 0.5);
+    }
+
+    /** /enchant only opens here. */
+    public boolean inEnchantArea(Location l) {
+        if (l == null || l.getWorld() == null || !l.getWorld().equals(world)) return false;
+        if (Math.abs(l.getBlockY() - Y) > 4) return false;
+        int dx = l.getBlockX(), dz = l.getBlockZ();
+        return dx * dx + dz * dz <= (ENCHANT_R + 3) * (ENCHANT_R + 3);
+    }
+
+    private void buildEnchanter() {
+        // A ring of dark stone around the watchtower plinth, picked out in gold.
+        for (int x = -ENCHANT_R - 2; x <= ENCHANT_R + 2; x++) {
+            for (int z = -ENCHANT_R - 2; z <= ENCHANT_R + 2; z++) {
+                int d2 = x * x + z * z;
+                if (d2 > (ENCHANT_R + 2) * (ENCHANT_R + 2) || d2 < 16) continue;
+                boolean edge = d2 > (ENCHANT_R + 1) * (ENCHANT_R + 1);
+                arch.set(x, Y, z, edge ? Material.POLISHED_BLACKSTONE_BRICKS
+                        : ((x + z) % 3 == 0 ? Material.CHISELED_POLISHED_BLACKSTONE
+                                            : Material.POLISHED_BLACKSTONE));
+            }
+        }
+        // Four stations on the compass points, each a table under a lit arch of shelves.
+        int[][] spots = {{0, ENCHANT_R}, {0, -ENCHANT_R}, {ENCHANT_R, 0}, {-ENCHANT_R, 0}};
+        for (int[] sp : spots) {
+            int x = sp[0], z = sp[1];
+            arch.set(x, Y + 1, z, Material.ENCHANTING_TABLE);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dz == 0) continue;
+                    if (Math.abs(dx) == 1 && Math.abs(dz) == 1) {
+                        arch.set(x + dx, Y + 1, z + dz, Material.BOOKSHELF);
+                        arch.set(x + dx, Y + 2, z + dz, Material.BOOKSHELF);
+                        arch.set(x + dx, Y + 3, z + dz, Material.CHISELED_BOOKSHELF);
+                    }
+                }
+            }
+            arch.set(x, Y + 4, z, Material.SEA_LANTERN);
+        }
+        hologramAt(0.5, Y + 3.2, ENCHANT_R + 2.5, "\u00a7d\u00a7lTHE ENCHANTER",
+                "\u00a77Hold your pickaxe and use \u00a7f/enchant",
+                "\u00a78Paid for in cash.");
+    }
+
     // ==================================================================================
     // Quadrant buildings
     // ==================================================================================
@@ -951,7 +1007,7 @@ public class WorldBuilder {
         String[][] board = {
                 {"§b§lGETTING STARTED", "Mine in Mine A,", "then /sell what", "you dig up."},
                 {"§b§lRANKING UP", "/rankup when you", "can afford it.", "A to Z to Free."},
-                {"§b§lTOKENS", "Earned by mining.", "Spend them at", "/enchant."},
+                {"§b§lENCHANTER", "Upgrade your", "pickaxe here.", "/enchant"},
                 {"§b§lYOUR CELL", "/cell claim in", "the cell block.", "Build inside it."},
         };
         int z = r[1] + 6;

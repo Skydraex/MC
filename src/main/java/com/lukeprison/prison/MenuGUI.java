@@ -40,8 +40,8 @@ public class MenuGUI implements Listener {
                 "§7View all ranks and rank up.",
                 "§7Current: §e" + plugin.ranks().getRank(p)));
         inv.setItem(11, item(Material.ENCHANTING_TABLE, "§b§lEnchants",
-                "§7Spend tokens on pickaxe enchants.",
-                "§7Tokens: §e" + plugin.ranks().getTokens(p)));
+                "§7Apply enchants to your pickaxe.",
+                "§7At the enchanter, in the hub."));
         inv.setItem(12, item(Material.COMPASS, "§a§lMine Warps",
                 "§7Teleport to any mine you've unlocked."));
         inv.setItem(13, item(Material.HOPPER, "§d§lAuto-Sell",

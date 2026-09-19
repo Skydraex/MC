@@ -29,29 +29,23 @@ public class CrateData {
         public final Material material;
         public final int amount;
         public final long money;
-        public final long tokens;
 
         private Reward(String display, int weight, RewardKind kind, Material material,
-                       int amount, long money, long tokens) {
+                       int amount, long money) {
             this.display = display;
             this.weight = weight;
             this.kind = kind;
             this.material = material;
             this.amount = amount;
             this.money = money;
-            this.tokens = tokens;
         }
 
         public static Reward money(String display, int weight, long amount) {
-            return new Reward(display, weight, RewardKind.MONEY, null, 0, amount, 0);
-        }
-
-        public static Reward tokens(String display, int weight, long amount) {
-            return new Reward(display, weight, RewardKind.TOKENS, null, 0, 0, amount);
+            return new Reward(display, weight, RewardKind.MONEY, null, 0, amount);
         }
 
         public static Reward item(String display, int weight, Material mat, int amount) {
-            return new Reward(display, weight, RewardKind.ITEM, mat, amount, 0, 0);
+            return new Reward(display, weight, RewardKind.ITEM, mat, amount, 0);
         }
 
         /**
@@ -64,7 +58,7 @@ public class CrateData {
          */
         public static Reward gear(String display, int weight, Material mat, String name,
                                   Map<Enchantment, Integer> enchants, String rarity) {
-            Reward r = new Reward(display, weight, RewardKind.ITEM, mat, 1, 0, 0);
+            Reward r = new Reward(display, weight, RewardKind.ITEM, mat, 1, 0);
             r.gearName = name;
             r.enchants = enchants;
             r.rarity = rarity;
@@ -78,7 +72,7 @@ public class CrateData {
         public boolean isGear() { return enchants != null && !enchants.isEmpty(); }
     }
 
-    public enum RewardKind { MONEY, TOKENS, ITEM, JACKPOT }
+    public enum RewardKind { MONEY, ITEM, JACKPOT }
 
     public static class Crate {
         public final String id, display;
@@ -168,9 +162,9 @@ public class CrateData {
     static {
         Crate miner = new Crate("miner", "Miner Crate", Material.TRIPWIRE_HOOK, "\u00a7b\u00a7lMiner Key");
         miner.rewards.add(Reward.money("$2,500", 300, 2500));
-        miner.rewards.add(Reward.tokens("150 Tokens", 250, 150));
+        miner.rewards.add(Reward.money("$22,500", 250, 22500));
         miner.rewards.add(Reward.money("$7,500", 180, 7500));
-        miner.rewards.add(Reward.tokens("400 Tokens", 60, 400));
+        miner.rewards.add(Reward.money("$60,000", 60, 60000));
         miner.rewards.add(Reward.item("Golden Apple x2", 50, Material.GOLDEN_APPLE, 2));
         miner.rewards.add(STURDY_PICK);
         miner.rewards.add(MINERS_PICK);
@@ -179,9 +173,9 @@ public class CrateData {
 
         Crate angler = new Crate("angler", "Angler Crate", Material.TRIPWIRE_HOOK, "\u00a7a\u00a7lAngler Key");
         angler.rewards.add(Reward.money("$4,000", 300, 4000));
-        angler.rewards.add(Reward.tokens("250 Tokens", 250, 250));
+        angler.rewards.add(Reward.money("$37,500", 250, 37500));
         angler.rewards.add(Reward.money("$12,000", 180, 12000));
-        angler.rewards.add(Reward.tokens("600 Tokens", 60, 600));
+        angler.rewards.add(Reward.money("$90,000", 60, 90000));
         angler.rewards.add(Reward.item("Cooked Salmon x16", 50, Material.COOKED_SALMON, 16));
         angler.rewards.add(REINFORCED_ROD);
         angler.rewards.add(ANGLERS_ROD);
@@ -190,9 +184,9 @@ public class CrateData {
 
         Crate vote = new Crate("vote", "Vote Crate", Material.TRIPWIRE_HOOK, "\u00a7e\u00a7lVote Key");
         vote.rewards.add(Reward.money("$5,000", 260, 5000));
-        vote.rewards.add(Reward.tokens("300 Tokens", 200, 300));
+        vote.rewards.add(Reward.money("$45,000", 200, 45000));
         vote.rewards.add(Reward.money("$15,000", 140, 15000));
-        vote.rewards.add(Reward.tokens("800 Tokens", 50, 800));
+        vote.rewards.add(Reward.money("$120,000", 50, 120000));
         vote.rewards.add(Reward.item("Diamond x3", 40, Material.DIAMOND, 3));
         vote.rewards.add(STURDY_PICK);
         vote.rewards.add(REINFORCED_ROD);

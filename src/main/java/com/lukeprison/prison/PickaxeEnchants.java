@@ -13,7 +13,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Custom pickaxe enchants, bought with tokens and stored on the item itself. */
+/**
+ * Custom pickaxe enchants, applied at the prison's enchanter and stored on the item itself.
+ *
+ * Bought with MONEY. There used to be a second currency, tokens, earned by a drip from
+ * mining and spent only here; with one currency the same purchase is legible against
+ * everything else a player could spend on, and there is no separate balance to explain.
+ */
 public class PickaxeEnchants {
 
     public static class EnchantDef {
@@ -35,30 +41,36 @@ public class PickaxeEnchants {
             this.requiredRank = requiredRank;
         }
 
-        /** Cost climbs steeply per level so max levels are a long-term goal, not a quick buy. */
+        /**
+         * Cost climbs steeply per level so max levels are a long-term goal, not a quick buy.
+         * baseCost is in dollars; the old token prices were scaled by MONEY_PER_TOKEN when
+         * the second currency was removed, so the relative cost of each enchant is unchanged.
+         */
         public long costFor(int nextLevel) {
-            return Math.round(baseCost * Math.pow(nextLevel, 1.8));
+            return Math.round(baseCost * MONEY_PER_TOKEN * Math.pow(nextLevel, 1.8));
         }
     }
+
+    /** What one of the old tokens was worth, used to convert the prices across. */
+    private static final long MONEY_PER_TOKEN = 150;
 
     public static final Map<String, EnchantDef> ENCHANTS = new LinkedHashMap<>();
 
     static {
-        // Deliberately conservative. Nothing here should trivialise early play: the strong
-        // enchants are gated behind a minimum rank so they arrive as a reward for progress,
-        // not as a shortcut past it.
+        // Deliberately conservative, and ordinary. Every one of these is a vanilla idea:
+        // swing faster, drop a bit more, hold a haste effect. Nothing multiplies a swing
+        // into a 3x3x3 and nothing smelts for you, because those two are what turn a prison
+        // server into an OP prison server - they delete the carry-it-back-and-sell-it half
+        // of the loop that the whole game is built on.
+        //
+        // Strong enchants are gated behind a minimum rank so they arrive as a reward for
+        // progress rather than a shortcut past it.
         ENCHANTS.put("efficiency", new EnchantDef("efficiency", "Efficiency",
                 "Mine blocks faster", 5, 80, Material.GOLDEN_PICKAXE, "A"));
         ENCHANTS.put("fortune", new EnchantDef("fortune", "Fortune",
                 "Small chance of bonus drops", 4, 220, Material.DIAMOND, "C"));
         ENCHANTS.put("haste", new EnchantDef("haste", "Haste",
                 "Mining speed boost while held", 3, 400, Material.BEACON, "F"));
-        ENCHANTS.put("autosmelt", new EnchantDef("autosmelt", "Auto-Smelt",
-                "Ores smelt into ingots automatically", 1, 900, Material.FURNACE, "H"));
-        ENCHANTS.put("tokenator", new EnchantDef("tokenator", "Tokenator",
-                "Small chance of bonus tokens", 5, 600, Material.SUNFLOWER, "J"));
-        ENCHANTS.put("explosive", new EnchantDef("explosive", "Explosive",
-                "Chance to blast a small area", 5, 1800, Material.TNT, "M"));
         ENCHANTS.put("efficiency2", new EnchantDef("efficiency2", "Deep Efficiency",
                 "Further mining speed, late game only", 3, 4000, Material.NETHERITE_PICKAXE, "R"));
     }

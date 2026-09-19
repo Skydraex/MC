@@ -55,6 +55,13 @@ public class ChatFormatListener implements Listener {
     @EventHandler
     public void onChat(AsyncChatEvent e) {
         Player p = e.getPlayer();
+        long muted = StaffRank.muteRemaining(p.getUniqueId());
+        if (muted != 0) {
+            e.setCancelled(true);
+            p.sendMessage("\u00a7cYou are muted"
+                    + (muted < 0 ? "." : " for another " + muted + " minute(s)."));
+            return;
+        }
         Component tag = rankTag(p);
         e.renderer((source, displayName, message, viewer) ->
                 tag.append(Component.text(" "))

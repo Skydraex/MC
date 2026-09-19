@@ -58,7 +58,7 @@ def shared_edge(a, b):
 
 
 def is_underground(name):
-    return name.startswith(("mine_", "rim_", "ring_", "shaft_"))
+    return name.startswith(("mine_", "rim_", "ring_", "shaft_", "plot_"))
 
 
 def main():
@@ -172,13 +172,13 @@ def main():
         while frontier:
             cur = frontier.pop()
             for name, rect in under.items():
-                if name in seen or name.startswith("mine_"):
-                    continue   # the pit itself is a hole, not a walkway
+                if name in seen or name.startswith(("mine_", "plot_")):
+                    continue   # the pit is a hole; the plot is scenery, reached via its rim
                 if shared_edge(under[cur], rect) >= MIN_DOOR:
                     seen.add(name)
                     frontier.append(name)
         for name in under:
-            if name.startswith("mine_") or name in seen:
+            if name.startswith(("mine_", "plot_")) or name in seen:
                 continue
             failures.append(f"not walkable from the shafts: {name}")
 

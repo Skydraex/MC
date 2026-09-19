@@ -155,6 +155,7 @@ public class MapLayout {{
     public static final int CONCOURSE_OUT = {layout["concourse_out"]};
     public static final int SHAFT_W = {layout["shaft_w"]};
     public static final int RIM_W = {layout["rim_w"]};
+    public static final int MINE_PLOT = {layout["mine_plot"]};
 
     /**
      * Every opening that has to exist between two areas, derived from the validated layout
@@ -199,13 +200,14 @@ public class MapLayout {{
                   f'"{e["rare"]}",{e["fillerPrice"]},{e["commonPrice"]},{e["rarePrice"]}')
         if rank == "FREE":
             return (f'        RANKS.put("FREE", new Def({common},"W",0,'
-                    f'null,null,null,null,0,0));')
+                    f'null,null,null,null,null,0,0));')
         lift = lifts[rank]
         g = gates[rank]
         lx, ly, lz = lift["landing"]
         return (f'        RANKS.put("{rank}", new Def({common},'
                 f'"{g["wall"]}",{int(round(g["centre"]))},'
                 f'new int[]{arr(lift["pit"])},new int[]{arr(lift["rim"])},'
+                f'new int[]{arr(lift["plot"])},'
                 f'new int[]{arr(regions[f"shaft_{rank}"])},'
                 f'new int[]{{{int(round(lx))},{int(round(ly))},{int(round(lz))}}},'
                 f'{lift["ore_bottom"]},{lift["ore_top"]}));')
@@ -239,18 +241,22 @@ public class RankMineData {{
         public final int[] rim;
         /** {{x,y,z}} you arrive on, on foot or by cage: always solid rim, never the hole. */
         public final int[] landing;
+        /** {{x1,z1,x2,z2}} of the landscaped chamber around the rim. */
+        public final int[] plot;
         /** {{x1,z1,x2,z2}} of the walk-down shaft from this rank's ward to the ring. */
         public final int[] shaft;
 
         public Def(String rank, int cost, String next, String filler, String common, String rare,
                    double fillerPrice, double commonPrice, double rarePrice,
                    String wall, int gateCentre,
-                   int[] pit, int[] rim, int[] shaft, int[] landing, int oreBottom, int oreTop) {{
+                   int[] pit, int[] rim, int[] plot, int[] shaft, int[] landing,
+                   int oreBottom, int oreTop) {{
             this.rank = rank; this.cost = cost; this.next = next;
             this.filler = filler; this.common = common; this.rare = rare;
             this.fillerPrice = fillerPrice; this.commonPrice = commonPrice; this.rarePrice = rarePrice;
             this.wall = wall; this.gateCentre = gateCentre;
-            this.pit = pit; this.rim = rim; this.shaft = shaft; this.landing = landing;
+            this.pit = pit; this.rim = rim; this.plot = plot;
+            this.shaft = shaft; this.landing = landing;
             this.oreBottom = oreBottom; this.oreTop = oreTop;
         }}
 

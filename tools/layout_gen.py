@@ -111,8 +111,9 @@ MINE_RIM_Y = MINE_ORE_TOP + 2  # walkable rim around the pit; the lift lands her
 # The ring's radius is forced by arithmetic, not taste: a wall's mines have to
 # fit along that side of the ring, and the widest wall's run sets the size.
 RIM_W = 4                      # walkway wrapping each pit
+MINE_PLOT = 8                  # landscaped ground around the walkway, on three sides
 MINE_GAP = 4                   # dividing wall between neighbouring mines
-CONCOURSE_IN = 174             # ring concourse, inner edge, measured from origin
+CONCOURSE_IN = 236             # ring concourse, inner edge, measured from origin
 CONCOURSE_W = 9                # wide enough to read as a thoroughfare, not a tunnel
 CONCOURSE_OUT = CONCOURSE_IN + CONCOURSE_W
 SHAFT_W = 7                    # clear width of a ward's shaft tunnel
@@ -288,8 +289,14 @@ def _place_ring():
 
 
 def _mine_footprint(rank):
-    """Along-the-ring space one mine consumes: its pit, its rim, its party wall."""
-    return WIDTHS[rank] + 2 * RIM_W + MINE_GAP
+    """Along-the-ring space one mine consumes.
+
+    Pit, the walkway round it, the landscaped band outside that, and the party
+    wall to the next mine. The plot band is what makes a mine somewhere rather
+    than a hole with a rail round it, and it is bought with ring radius: every
+    block of it is eight blocks of circumference and adds to every trip down.
+    """
+    return WIDTHS[rank] + 2 * RIM_W + 2 * MINE_PLOT + MINE_GAP
 
 
 def _place_mines():
@@ -307,6 +314,12 @@ def _place_mines():
 
             rim = _wall_axis_rects(wall, centre - (w / 2 + RIM_W), centre + (w / 2 + RIM_W),
                                    RING_FAR, RING_FAR + w + 2 * RIM_W)
+            # The chamber: landscaped band on the flanks and far side. The near
+            # side stays flush with the ring, so you step straight off it.
+            plot = _wall_axis_rects(
+                wall, centre - (w / 2 + RIM_W + MINE_PLOT), centre + (w / 2 + RIM_W + MINE_PLOT),
+                RING_FAR, RING_FAR + w + 2 * RIM_W + MINE_PLOT)
+            regions[f"plot_{rank}"] = plot
             pit = _wall_axis_rects(wall, centre - w / 2, centre + w / 2,
                                    RING_FAR + RIM_W, RING_FAR + RIM_W + w)
             regions[f"mine_{rank}"] = pit
@@ -330,6 +343,7 @@ def _place_mines():
                 "landing": landing,
                 "pit": pit,
                 "rim": rim,
+                "plot": plot,
                 "mine_centre": centre,
                 "ore_bottom": MINE_ORE_BOTTOM,
                 "ore_top": MINE_ORE_TOP,
@@ -360,7 +374,7 @@ def _same_feature(a, b):
 
 
 def _is_underground(name):
-    return name.startswith(("mine_", "rim_", "ring_", "shaft_"))
+    return name.startswith(("mine_", "rim_", "ring_", "shaft_", "plot_"))
 
 
 def _find_overlaps():
@@ -459,8 +473,8 @@ def _compute_doorways():
     out = []
     for i, a in enumerate(names):
         for b in names[i + 1:]:
-            if a.startswith("mine_") or b.startswith("mine_"):
-                continue                              # the pit is a hole, not a room
+            if a.startswith(("mine_", "plot_")) or b.startswith(("mine_", "plot_")):
+                continue            # the pit is a hole; the plot is scenery round the rim
             if _is_underground(a) != _is_underground(b):
                 continue
             if not _should_connect(a, b):
@@ -512,6 +526,7 @@ def get_layout():
         "shaft_w": SHAFT_W,
         "shaft_near": SHAFT_NEAR,
         "rim_w": RIM_W,
+        "mine_plot": MINE_PLOT,
         "doorways": doorways,
         "compound": list(COMPOUND),
         "assignment": assignment,

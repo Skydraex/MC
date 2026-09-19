@@ -1564,7 +1564,8 @@ public class WorldBuilder {
         int[] p = d.pit, rim = d.rim;
         MineTheme mt = themeFor(d.rank);
 
-        int ox1 = rim[0] - 1, oz1 = rim[1] - 1, ox2 = rim[2] + 1, oz2 = rim[3] + 1;
+        int[] plot = d.plot;
+        int ox1 = plot[0], oz1 = plot[1], ox2 = plot[2], oz2 = plot[3];
         int floorY = d.oreBottom - 1;      // the pit's own floor surface
         int ceilY = PIT_CEILING;
 
@@ -1639,8 +1640,10 @@ public class WorldBuilder {
      * none of it overhangs the ore.
      */
     private void decorateCavern(RankMineData.Def d, MineTheme mt) {
-        int[] rim = d.rim;
-        int ox1 = rim[0] - 1, oz1 = rim[1] - 1, ox2 = rim[2] + 1, oz2 = rim[3] + 1;
+        int[] rim = d.rim, plot = d.plot;
+        int ox1 = plot[0], oz1 = plot[1], ox2 = plot[2], oz2 = plot[3];
+
+        landscapePlot(d, mt);
 
         // --- Planted terraces, stepping in as they climb ---------------------------
         for (int step = 0; step < 3; step++) {
@@ -1704,6 +1707,57 @@ public class WorldBuilder {
                 arch.set(x, RIM_Y + dy, z, Math.abs(a) == 4 ? mt.log() : mt.trim());
             }
             if (Math.abs(a) == 2) arch.set(x, RIM_Y + 4, z, mt.glow());
+        }
+    }
+
+    /**
+     * The landscaped band between the walkway and the cavern wall.
+     *
+     * This is what the extra ring radius bought. Mines used to be a pit, a four-block rail
+     * and a wall — the band gives each one ground to stand on, so it reads as a place rather
+     * than a hole. It wraps three sides; the fourth stays flush with the ring so you step
+     * straight off the concourse onto the walkway.
+     */
+    private void landscapePlot(RankMineData.Def d, MineTheme mt) {
+        int[] rim = d.rim, plot = d.plot;
+
+        for (int x = plot[0]; x <= plot[2]; x++) {
+            for (int z = plot[1]; z <= plot[3]; z++) {
+                boolean onRimOrPit = x >= rim[0] && x <= rim[2] && z >= rim[1] && z <= rim[3];
+                if (onRimOrPit) continue;
+
+                // How far in from the cavern wall, which is what the planting follows.
+                int fromWall = Math.min(Math.min(x - plot[0], plot[2] - x),
+                                        Math.min(z - plot[1], plot[3] - z));
+                long h = Math.floorMod(x * 41L + z * 23L, 100);
+
+                arch.set(x, RIM_Y, z, fromWall <= 1 ? mt.band() : Material.ROOTED_DIRT);
+
+                if (fromWall <= 1) {
+                    // A kerb against the wall, lit on a rhythm.
+                    if (h < 8) arch.set(x, RIM_Y + 1, z, mt.glow());
+                    continue;
+                }
+                if (fromWall >= 3 && h < 10) {
+                    cavernTree(x, RIM_Y + 1, z, mt);
+                } else if (h < 46) {
+                    arch.set(x, RIM_Y + 1, z, mt.plant());
+                } else if (h < 54) {
+                    arch.set(x, RIM_Y + 1, z, mt.leaves());
+                } else if (h < 58) {
+                    // Raised planters, so the ground is not a flat carpet.
+                    arch.set(x, RIM_Y + 1, z, mt.trim());
+                    arch.set(x, RIM_Y + 2, z, mt.plant());
+                }
+            }
+        }
+
+        // Lamp posts down the two flanks of the walkway.
+        for (int z = rim[1] + 3; z <= rim[3] - 3; z += 11) {
+            for (int x : new int[]{plot[0] + 2, plot[2] - 2}) minerLamp(x, z);
+        }
+        for (int x = rim[0] + 3; x <= rim[2] - 3; x += 11) {
+            for (int z : new int[]{plot[1] + 2, plot[3] - 2}) minerLamp(x, z);
         }
     }
 

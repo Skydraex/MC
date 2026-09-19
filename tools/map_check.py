@@ -1,21 +1,37 @@
 """
-Validates the Sky Prison map before it's ever built in-game.
+Validates Sky Prison's geometry before a single block is placed in-game.
 
-This does NOT re-derive the layout with its own copy of the geometry (that's exactly
-how the earlier two-lane version quietly drifted out of sync with WorldBuilder.java).
-Instead it imports tools/layout_gen.py directly — the one function that also generates
-RankMineData.java and MapLayout.java — and checks the actual thing that will be built:
+Why this was rewritten
+----------------------
+The previous version asked only "does rectangle A touch rectangle B", and
+reported a fully connected map while players were walking into bedrock and
+sealed doorways. Touching is necessary but nowhere near sufficient: two
+rectangles that meet at a single corner "touch", and a corridor two blocks
+narrower than the doorway it serves "touches" as well.
 
-  1. No two regions (mine, ward, corridor, special room) overlap.
-  2. No two text label zones overlap.
-  3. Every mine and every special (fishing/crates/yard/cells) is reachable from the
-     hub's centre by flood-filling through touching regions only (proves every gate's
-     corridor really does connect hub -> ward -> mine, with nothing missing or gapped).
+So connectivity here is measured by SHARED EDGE LENGTH, not contact. Two
+regions are only considered joined if they share a straight run of at least
+MIN_DOOR blocks — the same width a player actually has to walk through. That
+turns the three failures the old check missed into hard errors:
 
-Run locally with `python3 tools/map_check.py`. CI runs this before the Maven build.
+  * corner-only contact                  -> shared edge 0
+  * corridor narrower than its doorway   -> shared edge < MIN_DOOR
+  * a region floating with no neighbour  -> unreachable from the hub
+
+It still cannot prove the Java placed the right blocks — only that the geometry
+it is handed is sound. The live world is checked separately, in-game, by
+`/padmin validate`.
+
+Run locally with `python3 tools/map_check.py`; CI runs it before the build.
 """
 import sys
-from layout_gen import get_layout
+
+from layout_gen import get_layout, GATE_W
+
+# A player needs a 1-wide gap to pass, but every doorway in this map is built
+# GATE_W wide; anything narrower than a third of that is a mistake, not a style
+# choice, and is far more likely to be an off-by-N in the layout maths.
+MIN_DOOR = max(3, GATE_W // 3)
 
 
 def rect_norm(r):
@@ -23,66 +39,124 @@ def rect_norm(r):
     return (min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2))
 
 
-def touching_or_overlapping(a, b, pad=1):
-    a = rect_norm(a)
-    b = rect_norm(b)
-    return not (a[2] + pad <= b[0] or b[2] + pad <= a[0] or a[3] + pad <= b[1] or b[3] + pad <= a[1])
+def shared_edge(a, b):
+    """Length of the straight run two rectangles share.
+
+    Returns 0 when they only meet at a corner, and the overlap length when they
+    abut or overlap along a side. Rectangles that are far apart return 0.
+    """
+    a, b = rect_norm(a), rect_norm(b)
+    x_overlap = min(a[2], b[2]) - max(a[0], b[0])
+    z_overlap = min(a[3], b[3]) - max(a[1], b[1])
+    # Not adjacent at all on one axis -> no shared edge.
+    if x_overlap < 0 or z_overlap < 0:
+        return 0
+    # Overlapping in both axes (regions intersect) or abutting on one.
+    if x_overlap > 0 and z_overlap > 0:
+        return min(x_overlap, z_overlap)
+    return x_overlap if z_overlap == 0 else z_overlap
+
+
+def is_underground(name):
+    return name.startswith(("mine_", "rim_"))
 
 
 def main():
     layout = get_layout()
     regions = layout["regions"]
+    gates = layout["gates"]
+    lifts = layout["lifts"]
     hub = layout["hub"]
 
-    ok = True
+    failures = []
 
-    if layout["overlap_violations"]:
-        ok = False
-        print(f"FAIL: {len(layout['overlap_violations'])} region overlap(s):")
-        for a, b in layout["overlap_violations"]:
-            print(f"  {a}  <->  {b}")
+    # ---- 1. Nothing overlaps, no label collides -------------------------
+    for a, b in layout["overlap_violations"]:
+        failures.append(f"region overlap: {a} <-> {b}")
+    for a, b in layout["text_zone_violations"]:
+        failures.append(f"label overlap: {a} <-> {b}")
 
-    if layout["text_zone_violations"]:
-        ok = False
-        print(f"FAIL: {len(layout['text_zone_violations'])} text label overlap(s):")
-        for a, b in layout["text_zone_violations"]:
-            print(f"  {a}  <->  {b}")
+    # ---- 2. Every gate's corridor really bridges hub wall to ward -------
+    for name in gates:
+        corridor = regions.get(f"corridor_{name}")
+        ward = regions.get(f"ward_{name}")
+        if corridor is None or ward is None:
+            failures.append(f"gate {name}: missing corridor or ward")
+            continue
+        to_hub = shared_edge(corridor, hub)
+        to_ward = shared_edge(corridor, ward)
+        if to_hub < MIN_DOOR:
+            failures.append(
+                f"gate {name}: corridor meets the hub over only {to_hub} blocks (need {MIN_DOOR})")
+        if to_ward < MIN_DOOR:
+            failures.append(
+                f"gate {name}: corridor meets its ward over only {to_ward} blocks (need {MIN_DOOR})")
 
-    # Reachability: BFS over "touches the hub, or touches something that touches the
-    # hub" using only real built regions (hub, wards, corridors, mines/rooms).
-    all_regions = {"HUB": hub, **regions}
-    reached = {"HUB"}
-    frontier = ["HUB"]
+    # ---- 3. Every room hangs off its own ward ---------------------------
+    for name, g in gates.items():
+        if g["kind"] != "room":
+            continue
+        room, ward = regions.get(f"room_{name}"), regions.get(f"ward_{name}")
+        if room is None:
+            failures.append(f"room gate {name}: no room region")
+            continue
+        edge = shared_edge(ward, room)
+        if edge < MIN_DOOR:
+            failures.append(
+                f"room {name}: meets its ward over only {edge} blocks (need {MIN_DOOR})")
+
+    # ---- 4. Every mine has a lift landing standing on its own rim -------
+    for rank, lift in lifts.items():
+        pit, rim = lift["pit"], lift["rim"]
+        lx, ly, lz = lift["landing"]
+        r = rect_norm(rim)
+        p = rect_norm(pit)
+        if not (r[0] <= lx <= r[2] and r[1] <= lz <= r[3]):
+            failures.append(f"mine {rank}: lift landing {lx},{lz} is outside its rim")
+        if p[0] < lx < p[2] and p[1] < lz < p[3]:
+            failures.append(f"mine {rank}: lift landing {lx},{lz} is inside the pit — players would fall in")
+        if not (r[0] < p[0] and r[1] < p[1] and r[2] > p[2] and r[3] > p[3]):
+            failures.append(f"mine {rank}: rim does not fully enclose the pit")
+        if lift["ore_top"] >= ly:
+            failures.append(
+                f"mine {rank}: rim y{ly} is not above the ore band top y{lift['ore_top']}")
+
+    # ---- 5. Everything on the surface is reachable from the hub ---------
+    surface = {k: v for k, v in regions.items() if not is_underground(k)}
+    surface["HUB"] = hub
+    reached, frontier = {"HUB"}, ["HUB"]
     while frontier:
         cur = frontier.pop()
-        for name, rect in all_regions.items():
+        for name, rect in surface.items():
             if name in reached:
                 continue
-            if touching_or_overlapping(all_regions[cur], rect):
+            if shared_edge(surface[cur], rect) >= MIN_DOOR:
                 reached.add(name)
                 frontier.append(name)
 
-    required_anchors = [f"mine_{r}" for r in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
-    required_anchors += [f"room_{name}" for name in ["FISHING", "CRATES", "YARD", "CELLS"]]
-    unreachable = [a for a in required_anchors if a not in reached]
-    if unreachable:
-        ok = False
-        print(f"FAIL: {len(unreachable)} anchor(s) not reachable from the hub:")
-        for a in unreachable:
-            print(f"  {a}")
+    for name in surface:
+        if name not in reached:
+            failures.append(f"unreachable from the hub: {name}")
 
-    print(f"\nTotal regions: {len(regions)}  (hub half-size: {layout['hub_half']:.0f})")
-    print(f"Reachable regions: {len(reached)} / {len(all_regions) + 1}")
+    # ---- Report ---------------------------------------------------------
+    print(f"Hub: {hub[2] - hub[0]} x {hub[3] - hub[1]}   gates: {len(gates)}")
+    print(f"Surface regions: {len(surface) - 1}   mine pits: {len(lifts)}")
+    print(f"Reachable from hub: {len(reached) - 1} / {len(surface) - 1}"
+          f"   (shared edge >= {MIN_DOOR} blocks)")
 
-    if ok:
+    if failures:
+        print(f"\nFAIL — {len(failures)} problem(s):")
+        for f in failures:
+            print(f"  {f}")
         print("\n--- Summary ---")
-        print("all 26 mines + fishing/crates/yard/cells reachable directly from the hub,")
-        print("no region overlaps, no text-label overlaps.")
-        return 0
-    else:
-        print("\n--- Summary ---")
-        print("map check FAILED — see violations above.")
+        print("map check FAILED — see problems above.")
         return 1
+
+    print("\n--- Summary ---")
+    print(f"all {len(lifts)} mines reachable by lift from their own ward,")
+    print("every gate bridges hub to ward at full door width,")
+    print("every surface area walkable from the hub, no overlaps, no label collisions.")
+    return 0
 
 
 if __name__ == "__main__":

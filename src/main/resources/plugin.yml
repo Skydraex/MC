@@ -16,6 +16,9 @@ commands:
   warps:
     description: Teleport to an unlocked mine
     aliases: [mines, warp]
+  mine:
+    description: Warp straight to a mine (your rank or below) - e.g. /mine C
+    usage: /mine <rank>
   enchant:
     description: Spend tokens on pickaxe enchants
     aliases: [enchants, ce]

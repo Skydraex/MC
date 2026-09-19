@@ -8,6 +8,33 @@ once the server is up.
 
 ---
 
+## Already have a server running?
+
+If you already have a Paper server with this plugin in it — a folder with `paper.jar`,
+`plugins/` and a `prison` world folder — then **skip all of Part A**. Everything in it is
+first-time setup you have already done.
+
+To take a new build:
+
+1. Go to https://github.com/Skydraex/MC/actions and click the newest run with a green tick.
+2. Scroll to **Artifacts**, download **PrisonPlugin**, unzip it.
+3. Stop the server if it is running.
+4. Replace the old `PrisonPlugin.jar` in your `plugins` folder with the new one.
+5. Delete the `prison` world folder. This is what forces the map to rebuild — the plugin
+   checks the world itself, so deleting the folder is all that is needed.
+6. Start the server.
+7. Watch the console for:
+
+   ```
+   Startup audit: PASS - world and plugin both check out.
+   ```
+
+   If it says `Startup audit: N problem(s) found`, the lines under it say what and where.
+
+Then go straight to **Part B** if you want the bot.
+
+---
+
 ## Part A — the server
 
 ### A1. Install Java 25

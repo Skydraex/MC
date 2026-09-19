@@ -87,7 +87,16 @@ public class CrateListener implements Listener {
             org.bukkit.inventory.meta.ItemMeta m = it.getItemMeta();
             if (m != null) {
                 m.setDisplayName("\u00a7f" + r.display);
-                m.setLore(java.util.List.of(String.format("\u00a77Chance: \u00a7e%.1f%%", pct)));
+                java.util.List<String> lore = new java.util.ArrayList<>();
+                lore.add(String.format("\u00a77Chance: \u00a7e%.2f%%", pct));
+                if (r.isGear()) {
+                    lore.add(r.rarity);
+                    for (java.util.Map.Entry<org.bukkit.enchantments.Enchantment, Integer> en
+                            : r.enchants.entrySet()) {
+                        lore.add("\u00a78- " + prettyEnchant(en.getKey()) + " " + en.getValue());
+                    }
+                }
+                m.setLore(lore);
                 it.setItemMeta(m);
             }
             inv.setItem(slot++, it);
@@ -110,6 +119,16 @@ public class CrateListener implements Listener {
     }
 
     /** The contents preview is read-only; without this players could take the display items. */
+    private static String prettyEnchant(org.bukkit.enchantments.Enchantment e) {
+        String raw = e.getKey().getKey().replace('_', ' ');
+        StringBuilder sb = new StringBuilder();
+        for (String w : raw.split(" ")) {
+            if (w.isEmpty()) continue;
+            sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)).append(' ');
+        }
+        return sb.toString().trim();
+    }
+
     @EventHandler
     public void onPreviewClick(org.bukkit.event.inventory.InventoryClickEvent e) {
         String title = e.getView().getTitle();
@@ -170,8 +189,12 @@ public class CrateListener implements Listener {
                 p.sendMessage("§aYou won §b" + reward.display + "§a!");
             }
             case ITEM -> {
-                p.getInventory().addItem(new ItemStack(reward.material, reward.amount));
+                // buildItem, not a bare ItemStack: gear rewards carry a name and enchantments.
+                p.getInventory().addItem(CrateData.buildItem(reward));
                 p.sendMessage("§aYou won §f" + reward.display + "§a!");
+                if (reward.isGear()) {
+                    p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.4f);
+                }
             }
             default -> { }
         }

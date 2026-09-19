@@ -53,6 +53,29 @@ public class CrateData {
         public static Reward item(String display, int weight, Material mat, int amount) {
             return new Reward(display, weight, RewardKind.ITEM, mat, amount, 0, 0);
         }
+
+        /**
+         * A named, enchanted piece of gear.
+         *
+         * Item rewards used to be nothing but a Material and a count, so every "Fishing Rod" or
+         * "Iron Pickaxe" a crate gave out was a plain vanilla one. The only enchanted item in the
+         * whole system was the 0.1% jackpot, which left a cliff: common junk, then nothing at all
+         * until a legendary. These fill the middle.
+         */
+        public static Reward gear(String display, int weight, Material mat, String name,
+                                  Map<Enchantment, Integer> enchants, String rarity) {
+            Reward r = new Reward(display, weight, RewardKind.ITEM, mat, 1, 0, 0);
+            r.gearName = name;
+            r.enchants = enchants;
+            r.rarity = rarity;
+            return r;
+        }
+
+        /** Set only for gear rewards. */
+        public String gearName, rarity;
+        public Map<Enchantment, Integer> enchants;
+
+        public boolean isGear() { return enchants != null && !enchants.isEmpty(); }
     }
 
     public enum RewardKind { MONEY, TOKENS, ITEM, JACKPOT }
@@ -76,33 +99,105 @@ public class CrateData {
 
     public static final Map<String, Crate> CRATES = new LinkedHashMap<>();
 
+    // Weights are out of 1000 per crate, so a weight reads directly as a tenth of a percent.
+    //
+    // Every crate runs the same ladder, and each rung is clearly worse than the one above it:
+    //
+    //   ~7%    a modest enchanted tool, better than vanilla but nothing special
+    //   ~2%    a good one, roughly what a player could buy with tokens
+    //   ~0.5%  a very good one, the best thing you can get without a jackpot
+    //   0.1%   the jackpot, and it beats the tier below it on every single stat
+    //
+    // Nothing here is game-breaking on purpose: the strongest non-jackpot pickaxe tops out at
+    // Efficiency 5 / Fortune 2, which is around what the token shop sells, and it has no Mending.
+    // Only the jackpot goes above that, and only modestly.
+
+    private static Map<Enchantment, Integer> ench(Object... pairs) {
+        Map<Enchantment, Integer> m = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            m.put((Enchantment) pairs[i], (Integer) pairs[i + 1]);
+        }
+        return m;
+    }
+
     static {
         Crate miner = new Crate("miner", "Miner Crate", Material.TRIPWIRE_HOOK, "§b§lMiner Key");
-        miner.rewards.add(Reward.money("$2,500", 30, 2500));
-        miner.rewards.add(Reward.money("$7,500", 20, 7500));
-        miner.rewards.add(Reward.tokens("150 Tokens", 25, 150));
-        miner.rewards.add(Reward.tokens("400 Tokens", 12, 400));
-        miner.rewards.add(Reward.item("Iron Pickaxe", 8, Material.IRON_PICKAXE, 1));
-        miner.rewards.add(Reward.item("Golden Apple", 5, Material.GOLDEN_APPLE, 2));
+        miner.rewards.add(Reward.money("$2,500", 300, 2500));
+        miner.rewards.add(Reward.tokens("150 Tokens", 250, 150));
+        miner.rewards.add(Reward.money("$7,500", 200, 7500));
+        miner.rewards.add(Reward.tokens("400 Tokens", 120, 400));
+        miner.rewards.add(Reward.item("Golden Apple x2", 50, Material.GOLDEN_APPLE, 2));
+        miner.rewards.add(Reward.gear("Sturdy Pickaxe", 60, Material.IRON_PICKAXE,
+                "§f§lSturdy Pickaxe",
+                ench(Enchantment.EFFICIENCY, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
+        miner.rewards.add(Reward.gear("Miner's Pickaxe", 18, Material.DIAMOND_PICKAXE,
+                "§b§lMiner's Pickaxe",
+                ench(Enchantment.EFFICIENCY, 3, Enchantment.FORTUNE, 1,
+                        Enchantment.UNBREAKING, 3), "§bRare"));
+        miner.rewards.add(Reward.gear("Foreman's Pickaxe", 2, Material.DIAMOND_PICKAXE,
+                "§5§lForeman's Pickaxe",
+                ench(Enchantment.EFFICIENCY, 5, Enchantment.FORTUNE, 2,
+                        Enchantment.UNBREAKING, 4), "§5Very rare"));
         CRATES.put(miner.id, miner);
 
         Crate angler = new Crate("angler", "Angler Crate", Material.TRIPWIRE_HOOK, "§a§lAngler Key");
-        angler.rewards.add(Reward.money("$4,000", 30, 4000));
-        angler.rewards.add(Reward.money("$12,000", 18, 12000));
-        angler.rewards.add(Reward.tokens("250 Tokens", 25, 250));
-        angler.rewards.add(Reward.tokens("600 Tokens", 12, 600));
-        angler.rewards.add(Reward.item("Fishing Rod", 10, Material.FISHING_ROD, 1));
-        angler.rewards.add(Reward.item("Cooked Salmon", 5, Material.COOKED_SALMON, 16));
+        angler.rewards.add(Reward.money("$4,000", 300, 4000));
+        angler.rewards.add(Reward.tokens("250 Tokens", 250, 250));
+        angler.rewards.add(Reward.money("$12,000", 180, 12000));
+        angler.rewards.add(Reward.tokens("600 Tokens", 120, 600));
+        angler.rewards.add(Reward.item("Cooked Salmon x16", 50, Material.COOKED_SALMON, 16));
+        angler.rewards.add(Reward.gear("Reinforced Rod", 70, Material.FISHING_ROD,
+                "§f§lReinforced Rod",
+                ench(Enchantment.LURE, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
+        angler.rewards.add(Reward.gear("Angler's Rod", 25, Material.FISHING_ROD,
+                "§b§lAngler's Rod",
+                ench(Enchantment.LURE, 3, Enchantment.LUCK_OF_THE_SEA, 2,
+                        Enchantment.UNBREAKING, 3), "§bRare"));
+        angler.rewards.add(Reward.gear("Deepwater Rod", 5, Material.FISHING_ROD,
+                "§5§lDeepwater Rod",
+                ench(Enchantment.LURE, 4, Enchantment.LUCK_OF_THE_SEA, 3,
+                        Enchantment.UNBREAKING, 4), "§5Very rare"));
         CRATES.put(angler.id, angler);
 
         Crate vote = new Crate("vote", "Vote Crate", Material.TRIPWIRE_HOOK, "§e§lVote Key");
-        vote.rewards.add(Reward.money("$5,000", 30, 5000));
-        vote.rewards.add(Reward.money("$15,000", 18, 15000));
-        vote.rewards.add(Reward.tokens("300 Tokens", 26, 300));
-        vote.rewards.add(Reward.tokens("800 Tokens", 14, 800));
-        vote.rewards.add(Reward.item("Diamond", 8, Material.DIAMOND, 3));
-        vote.rewards.add(Reward.item("Golden Apple", 4, Material.GOLDEN_APPLE, 3));
+        vote.rewards.add(Reward.money("$5,000", 300, 5000));
+        vote.rewards.add(Reward.tokens("300 Tokens", 260, 300));
+        vote.rewards.add(Reward.money("$15,000", 180, 15000));
+        vote.rewards.add(Reward.tokens("800 Tokens", 140, 800));
+        vote.rewards.add(Reward.item("Diamond x3", 70, Material.DIAMOND, 3));
+        vote.rewards.add(Reward.gear("Sturdy Pickaxe", 25, Material.IRON_PICKAXE,
+                "§f§lSturdy Pickaxe",
+                ench(Enchantment.EFFICIENCY, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
+        vote.rewards.add(Reward.gear("Reinforced Rod", 20, Material.FISHING_ROD,
+                "§f§lReinforced Rod",
+                ench(Enchantment.LURE, 2, Enchantment.UNBREAKING, 2), "§7Uncommon"));
+        vote.rewards.add(Reward.gear("Miner's Pickaxe", 5, Material.DIAMOND_PICKAXE,
+                "§b§lMiner's Pickaxe",
+                ench(Enchantment.EFFICIENCY, 3, Enchantment.FORTUNE, 1,
+                        Enchantment.UNBREAKING, 3), "§bRare"));
         CRATES.put(vote.id, vote);
+    }
+
+    /**
+     * Turns a reward into the actual item handed over, enchantments and all. The granting code
+     * used to build a bare ItemStack from the Material, which silently dropped everything that
+     * made a piece of gear worth winning.
+     */
+    public static ItemStack buildItem(Reward r) {
+        ItemStack it = new ItemStack(r.material, Math.max(1, r.amount));
+        if (!r.isGear()) return it;
+        ItemMeta meta = it.getItemMeta();
+        if (meta == null) return it;
+        meta.setDisplayName(r.gearName);
+        for (Map.Entry<Enchantment, Integer> e : r.enchants.entrySet()) {
+            meta.addEnchant(e.getKey(), e.getValue(), true);
+        }
+        List<String> lore = new ArrayList<>();
+        lore.add(r.rarity == null ? "§7Crate reward" : r.rarity);
+        lore.add("§8Won from a crate.");
+        meta.setLore(lore);
+        it.setItemMeta(meta);
+        return it;
     }
 
     /** Weighted pick from a crate's standard table. */

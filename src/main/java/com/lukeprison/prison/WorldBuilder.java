@@ -1539,7 +1539,34 @@ public class WorldBuilder {
 
     private File markerFile() { return new File(plugin.getDataFolder(), "world-built.marker"); }
 
-    public boolean alreadyBuilt() { return markerFile().exists(); }
+    /**
+     * Whether the prison already exists in the world.
+     *
+     * The marker file alone is NOT evidence, and trusting it was a real bug: the marker lives in
+     * the plugin's data folder, so deleting the `prison` world folder — the documented way to
+     * force a clean rebuild — leaves the marker behind. The plugin then skipped construction and
+     * dropped players into an empty void world with no way to recover short of finding and
+     * deleting a file nobody would think to look for.
+     *
+     * So the world itself is the source of truth: the marker is only a fast path, and we confirm
+     * against a block that only exists if the build actually ran. Delete the world and you get a
+     * rebuild, every time, with no second step.
+     */
+    public boolean alreadyBuilt() {
+        if (!markerFile().exists()) return false;
+        if (!worldLooksBuilt()) {
+            plugin.getLogger().warning("Build marker found but the world is empty "
+                    + "(the prison world folder was probably deleted). Rebuilding.");
+            markerFile().delete();
+            return false;
+        }
+        return true;
+    }
+
+    /** The watchtower plinth at the hub's centre — present if and only if the build ran. */
+    private boolean worldLooksBuilt() {
+        return !world.getBlockAt(0, Y, 0).getType().isAir();
+    }
 
     private void writeMarker() {
         try {

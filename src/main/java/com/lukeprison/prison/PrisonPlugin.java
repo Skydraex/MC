@@ -84,7 +84,20 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         if (!firstBoot) {
             getLogger().info("World already built \u2014 skipping construction.");
         } else {
-            worldBuilder.buildAll();
+            getLogger().info("Building the prison. This takes a while on first boot.");
+            long started = System.currentTimeMillis();
+            try {
+                worldBuilder.buildAll();
+                getLogger().info("Prison build finished in "
+                        + ((System.currentTimeMillis() - started) / 1000) + "s.");
+            } catch (RuntimeException ex) {
+                // Never let a half-finished build pass for a finished one. Without this the
+                // marker would be missing but the failure silent, and the next boot would try
+                // again on top of the wreckage with no clue in the log as to what went wrong.
+                getLogger().severe("The prison build FAILED partway through: " + ex);
+                ex.printStackTrace();
+                getLogger().severe("Delete the 'prison' world folder and restart to try again.");
+            }
         }
 
         sellSignListener = new SellSignListener(this, worldBuilder.getSellSigns());

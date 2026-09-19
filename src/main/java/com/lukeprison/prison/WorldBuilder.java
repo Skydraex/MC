@@ -41,19 +41,39 @@ public class WorldBuilder {
 
     // ---- Master layout. Every region here is disjoint from every other. ----
     public static final int Y = 95;               // one floor height everywhere
-    private static final int ENTRANCE_Z = 3;      // shared alignment for the whole ward line
+
+    // The mine row is now two lanes branching off the hub's east wall instead of one long
+    // line: odd-position ranks (A,C,E...) run out to the LEFT (positive Z), even-position
+    // ranks (B,D,F...) run out to the RIGHT (negative Z), paired by distance from hub — A
+    // and B are both "1st out", C and D both "2nd out", and so on. LEFT_ENTRANCE_Z and
+    // RIGHT_ENTRANCE_Z are each constant across their whole lane because every mine in a
+    // lane shares the same hub-side edge (see RankMineData's generator).
+    // The gates need to fit inside the hub's own north/south walls without reaching into
+    // CELLS (z1=45) or CRATES/YARD (z2=-45), so lane magnitude is kept well inside that ±45
+    // envelope (see the overlap check tools/map_check.py runs after every edit here).
+    private static final int LEFT_BASE = 32, RIGHT_BASE = -32;
+    private static final int LEFT_ENTRANCE_Z = LEFT_BASE + 3, RIGHT_ENTRANCE_Z = RIGHT_BASE - 3;
 
     private static final int[] STARTER   = {-170, -20, -130, 20};
     private static final int[] CORRIDOR  = {-130,  -5,  -76,  5};
-    private static final int[] HUB       = { -75, -30,  -15, 30};
+    // Bigger than before, and tall enough on the Z axis to reach both lanes' gates on its
+    // east wall — one gate to the north (left lane), one to the south (right lane) — while
+    // staying clear of CELLS to the south and CRATES/YARD to the north.
+    private static final int[] HUB       = {-100, -40,  -15, 40};
     private static final int[] CELLS     = { -135,  45,  -15,  64};
     private static final int[] CRATES    = { -75, -75,  -45, -45};
     private static final int[] YARD      = { -40, -75,  -15, -45};
-    private static final int[] FISH_PATH = {  -8,-100,   -2, -1};
-    private static final int[] LOGGING   = { 460,-240,  560,-140};
-    private static final int[] FARM      = { 460,-130,  560, -30};
+    // West of the hub/starter — negative X, same as before this redesign — so this whole
+    // cluster can never collide with a mine or ward: every mine lane runs positive-X only.
+    private static final int FISH_X1 = -460, FISH_X2 = -20;
     private static final int FISH_Z1 = -240, FISH_Z2 = -100;
-    private static final int BYPASS_Z = -15;   // a corridor north of every mine, so wards never route through one
+    // A short straight corridor on the hub's own north wall, well west of the crate-hall and
+    // yard doorways that already sit on that same wall (crateMid/yardMid), so fishing gets a
+    // clean gate of its own instead of overlapping either of them.
+    private static final int FISH_GATE_X = HUB[0] + 15;
+    private static final int[] FISH_PATH = {FISH_GATE_X - 3, FISH_Z2, FISH_GATE_X + 3, HUB[1] - 1};
+    private static final int[] LOGGING = {-580, -240, -480, -140};
+    private static final int[] FARM    = {-580, -130, -480,  -30};
     private static final int CELL_SIZE = 6, CORRIDOR_WIDTH = 5;
 
     private static final int CELL_TIERS = 3;
@@ -96,7 +116,7 @@ public class WorldBuilder {
             prices.put(safeMaterial(d.filler), d.fillerPrice);
             prices.put(safeMaterial(d.common), d.commonPrice);
             prices.put(safeMaterial(d.rare), d.rarePrice);
-            sellSigns.put(new Location(world, d.x1 - 1, Y + 2, d.z1 + ENTRANCE_Z + 2),
+            sellSigns.put(new Location(world, d.x1 - 1, Y + 2, fromNear(d, 5)),
                     new SellSignListener.SellSignData(d.rank, prices));
         }
         registerPondBounds();
@@ -203,8 +223,8 @@ public class WorldBuilder {
                 combinedBlanket(10, HUB, CELLS, CRATES, YARD),
                 pad(FISH_PATH, 4),
                 // Same reasoning for the fishing/logging/farm cluster out past the corridor.
-                combinedBlanket(15, new int[]{-20, FISH_Z1 - 6, 440, FISH_Z2 + 6}, LOGGING, FARM),
-                {HUB[2], -45, lastMineX2() + 30, 30}   // the ward line, incl. pits
+                combinedBlanket(15, new int[]{FISH_X1, FISH_Z1 - 6, FISH_X2, FISH_Z2 + 6}, LOGGING, FARM),
+                wardLineFootprint()   // both lanes' wards + bypass corridors + pits
         };
         for (int[] f : footprints) {
             for (int x = f[0]; x <= f[2]; x++) {
@@ -233,6 +253,24 @@ public class WorldBuilder {
         int max = 0;
         for (RankMineData.Def d : RankMineData.RANKS.values()) max = Math.max(max, d.x2);
         return max;
+    }
+
+    /**
+     * The X/Z box covering both lanes' wards, bypass corridors and pits — everything between
+     * the hub and the mines that isn't a mine interior (mines lay their own floor in
+     * buildMine and don't need this blanket). Computed from wardRect/pitRect across every
+     * rank rather than hardcoded, so it can't silently fall out of sync if a lane constant
+     * changes.
+     */
+    private int[] wardLineFootprint() {
+        int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.rank.equals("FREE")) continue;
+            int[] w = wardRect(d), p = pitRect(d);
+            minZ = Math.min(minZ, Math.min(w[1], p[1]));
+            maxZ = Math.max(maxZ, Math.max(w[3], p[3]));
+        }
+        return new int[]{HUB[2], minZ - 10, lastMineX2() + 30, maxZ + 10};
     }
 
     // ---- Starter yard and prison bus ----
@@ -333,27 +371,38 @@ public class WorldBuilder {
         for (int dy = 11; dy <= HUB_HEIGHT; dy++) arch.set(cx, Y + dy, cz, Material.IRON_BARS);
 
         // Red-wool PvP lane from the Yard door straight up to the dais. Inside red = PvP on.
+        // Fixed length regardless of how big the hub gets — this only needs to reach the Yard
+        // door, not the whole hall.
         int yardMid = (YARD[0] + YARD[2]) / 2;
-        for (int z = r[1] + 1; z <= -7; z++) {
+        for (int z = PVP_LANE_Z1; z <= -7; z++) {
             for (int dx = -1; dx <= 1; dx++) arch.set(yardMid + dx, Y, z, Material.RED_WOOL);
         }
-        pvpLane = new int[]{yardMid - 1, r[1] + 1, yardMid + 1, -7};
+        pvpLane = new int[]{yardMid - 1, PVP_LANE_Z1, yardMid + 1, -7};
         sign(yardMid + 3, Y + 2, -12, BlockFace.WEST, "§c§lRED WOOL", "means", "§cPVP IS ON", "");
         sign(yardMid - 3, Y + 2, -12, BlockFace.EAST, "§7§lGRAY FLOOR", "means", "§aPVP IS OFF", "");
 
-        // Server name inside, above the east gate, read facing west from the ward walkway.
+        // Server name centred on the east wall, between the two mine-lane gates.
         int nameW = BlockFont.width("SKY PRISON");
         BlockFont.write(world, "SKY PRISON", r[2], Y + HUB_HEIGHT - 2, nameW / 2, BlockFont.Axis.NEG_Z, Material.LIGHT_BLUE_CONCRETE);
 
-        // Ender chests flanking the grand gate, as prison hubs do.
-        arch.set(r[2] - 2, Y + 1, ENTRANCE_Z - 5, Material.ENDER_CHEST);
-        arch.set(r[2] - 2, Y + 1, ENTRANCE_Z + 5, Material.ENDER_CHEST);
+        // Ender chests flanking each of the two mine-lane gates.
+        for (int gz : new int[]{LEFT_ENTRANCE_Z, RIGHT_ENTRANCE_Z}) {
+            arch.set(r[2] - 2, Y + 1, gz - 5, Material.ENDER_CHEST);
+            arch.set(r[2] - 2, Y + 1, gz + 5, Material.ENDER_CHEST);
+        }
+        // Signposted lane markers well before each gate so the split reads clearly from a
+        // distance, not just at the doorway itself.
+        BlockFont.write(world, "A-Y WARDS", r[2] - 1, Y + 9, LEFT_ENTRANCE_Z - BlockFont.width("A-Y WARDS") / 2, BlockFont.Axis.POS_Z, Material.LIME_CONCRETE);
+        BlockFont.write(world, "B-Z WARDS", r[2] - 1, Y + 9, RIGHT_ENTRANCE_Z - BlockFont.width("B-Z WARDS") / 2, BlockFont.Axis.POS_Z, Material.ORANGE_CONCRETE);
+        sign(r[2] - 3, Y + 2, LEFT_ENTRANCE_Z, BlockFace.WEST, "§a§lODD WARDS", "A, C, E...", "Left wing", "");
+        sign(r[2] - 3, Y + 2, RIGHT_ENTRANCE_Z, BlockFace.WEST, "§6§lEVEN WARDS", "B, D, F...", "Right wing", "");
 
         sign(r[0] + 1, Y + 2, 8, BlockFace.EAST, "§b§lSKY PRISON", "/prison  menu", "/warps  mines", "/fishing  ponds");
-        sign(r[0] + 1, Y + 2, -8, BlockFace.EAST, "§6§lWHERE TO", "N: Cell block", "S: Crates & Yard", "E: The Wards");
+        sign(r[0] + 1, Y + 2, -8, BlockFace.EAST, "§6§lWHERE TO", "N: Cell block", "S: Crates, Yard, Fishing", "E: The Wards (two wings)");
     }
 
     private int[] pvpLane;
+    private static final int PVP_LANE_Z1 = -29;
 
     // ---- Cell block: two tiers of 7x7 cells on railed gantries ----
 
@@ -513,18 +562,34 @@ public class WorldBuilder {
         int[] r = YARD;
         pvpZones.add(new PvpZoneManager.Zone("The Yard", r[0], Y, r[1], r[2], Y + 10, r[3]));
         int yardMid = (YARD[0] + YARD[2]) / 2;
-        pvpZones.add(new PvpZoneManager.Zone("Hub PvP Lane", yardMid - 1, Y, HUB[1] + 1, yardMid + 1, Y + 3, -7));
+        pvpZones.add(new PvpZoneManager.Zone("Hub PvP Lane", yardMid - 1, Y, PVP_LANE_Z1, yardMid + 1, Y + 3, -7));
         for (String rank : new String[]{"F", "M", "T"}) {
             int[] p = pitRect(RankMineData.RANKS.get(rank));
             if (p != null) pvpZones.add(new PvpZoneManager.Zone(rank + "-Ward Pit", p[0], Y, p[1], p[2], Y + 8, p[3]));
         }
     }
 
-    private int[] wardRect(RankMineData.Def d) { return new int[]{d.x1 - 24, -8, d.x1 - 4, 14}; }
+    // ---- Lane helpers: every mine belongs to the LEFT or RIGHT lane off the hub (see
+    //      RankMineData.LANES). A lane's "near" edge is whichever of z1/z2 is on the hub
+    //      side — z1 for the left lane, z2 for the right lane — and it's the same for every
+    //      mine in that lane, since RankMineData pins it fixed per lane. ----
+    private boolean isLeft(String rank) { return "LEFT".equals(RankMineData.LANES.get(rank)); }
+    private int nearZ(RankMineData.Def d) { return isLeft(d.rank) ? d.z1 : d.z2; }
+    private int fromNear(RankMineData.Def d, int amount) { return nearZ(d) + (isLeft(d.rank) ? amount : -amount); }
+    /** The gate/approach Z for this mine's ward — constant across a whole lane. */
+    private int entranceZ(RankMineData.Def d) { return fromNear(d, 3); }
+
+    private int[] wardRect(RankMineData.Def d) {
+        int ez = entranceZ(d);
+        return new int[]{d.x1 - 24, ez - 11, d.x1 - 4, ez + 11};
+    }
+
     private int[] pitRect(RankMineData.Def d) {
         if (d == null) return null;
         int[] w = wardRect(d);
-        return new int[]{w[0], -36, w[2], -16};
+        // Further out past the ward's own outer (bypass-side) edge — z1 is always that edge,
+        // for either lane, since wardRect above is built symmetrically around entranceZ.
+        return new int[]{w[0], w[1] - 28, w[2], w[1] - 8};
     }
 
     private void buildYard() {
@@ -576,7 +641,7 @@ public class WorldBuilder {
         placeMineLights(d);
         cladMineFacade(d);
         // Sell sign on the ward-facing wall, beside the entrance.
-        sign(d.x1 - 1, Y + 2, d.z1 + ENTRANCE_Z + 2, BlockFace.WEST, "§a[Sell]", "Mine " + d.rank + " ores", "Right-click", "holding ore");
+        sign(d.x1 - 1, Y + 2, fromNear(d, 5), BlockFace.WEST, "§a[Sell]", "Mine " + d.rank + " ores", "Right-click", "holding ore");
     }
 
     /**
@@ -585,16 +650,41 @@ public class WorldBuilder {
      * this is a decorative skin over the outside so the building reads as a facade, not a
      * bare grey box the size of a warehouse.
      */
+    /**
+     * Each rank gets its own facade theme instead of the same light-blue/cyan bands on every
+     * mine, so the row reads as 26 different buildings, not one building copy-pasted 26 times.
+     * Themes shift roughly every 4-5 ranks, echoing the classic "early ranks look rough, late
+     * ranks look prestigious" read without needing bespoke terrain/foliage per mine (that's a
+     * much bigger art pass — see the notes sent alongside this change).
+     */
+    private record MineTheme(Material pillar, Material trim, Material bandA, Material bandB, Material roof) { }
+
+    private static final MineTheme[] MINE_THEMES = {
+            new MineTheme(Material.COBBLESTONE, Material.STONE_BRICKS, Material.STONE, Material.ANDESITE, Material.STONE_BRICKS),
+            new MineTheme(Material.POLISHED_ANDESITE, Material.SMOOTH_STONE, Material.LIGHT_GRAY_TERRACOTTA, Material.GRAY_TERRACOTTA, Material.SMOOTH_STONE),
+            new MineTheme(Material.POLISHED_BASALT, Material.SMOOTH_QUARTZ, Material.LIGHT_BLUE_TERRACOTTA, Material.CYAN_TERRACOTTA, Material.SMOOTH_QUARTZ),
+            new MineTheme(Material.CUT_COPPER, Material.WAXED_CUT_COPPER, Material.ORANGE_TERRACOTTA, Material.TERRACOTTA, Material.WAXED_CUT_COPPER),
+            new MineTheme(Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE, Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICKS, Material.CHISELED_DEEPSLATE),
+            new MineTheme(Material.BLACKSTONE, Material.POLISHED_BLACKSTONE_BRICKS, Material.GILDED_BLACKSTONE, Material.POLISHED_BLACKSTONE, Material.POLISHED_BLACKSTONE_BRICKS),
+            new MineTheme(Material.AMETHYST_BLOCK, Material.CALCITE, Material.PURPLE_TERRACOTTA, Material.MAGENTA_TERRACOTTA, Material.CALCITE),
+    };
+
+    private MineTheme themeFor(String rank) {
+        int idx = RankMineData.RANKS.keySet().stream().toList().indexOf(rank);
+        return MINE_THEMES[(idx / 4) % MINE_THEMES.length];
+    }
+
     private void cladMineFacade(RankMineData.Def d) {
+        MineTheme t = themeFor(d.rank);
         int height = d.y2 - d.y1;
         for (int x = d.x1; x <= d.x2; x++) {
             for (int y = 0; y <= height; y++) {
                 boolean pillar = (x - d.x1) % 10 < 2;
                 boolean band = y == height / 3 || y == height / 3 + 1;
                 boolean trim = y == 0 || y == height;
-                Material mat = pillar ? Material.POLISHED_BASALT
-                        : trim ? Material.SMOOTH_QUARTZ
-                        : band ? (x % 2 == 0 ? Material.LIGHT_BLUE_TERRACOTTA : Material.CYAN_TERRACOTTA)
+                Material mat = pillar ? t.pillar
+                        : trim ? t.trim
+                        : band ? (x % 2 == 0 ? t.bandA : t.bandB)
                         : arch.pick(Architect.WARD_INDUSTRIAL);
                 arch.set(x, d.y1 + y, d.z1 - 1, mat);
                 arch.set(x, d.y1 + y, d.z2 + 1, mat);
@@ -603,7 +693,7 @@ public class WorldBuilder {
         // A simple capped roof with an overhang lip, rather than a flat bedrock top.
         for (int x = d.x1 - 1; x <= d.x2 + 1; x++) {
             for (int z = d.z1 - 1; z <= d.z2 + 1; z++) {
-                arch.set(x, d.y2 + 1, z, Material.SMOOTH_QUARTZ);
+                arch.set(x, d.y2 + 1, z, t.roof);
             }
         }
     }
@@ -613,12 +703,12 @@ public class WorldBuilder {
         arch.prisonHall(w[0], w[1], w[2], w[3], Y, 9, Material.POLISHED_DEEPSLATE, Material.POLISHED_BLACKSTONE, 8);
         // Iron-bar rails flanking the route through to the mine.
         for (int x = w[0] + 1; x < w[2]; x++) {
-            arch.set(x, Y + 1, ENTRANCE_Z - 3, Material.IRON_BARS);
-            arch.set(x, Y + 1, ENTRANCE_Z + 3, Material.IRON_BARS);
+            arch.set(x, Y + 1, entranceZ(d) - 3, Material.IRON_BARS);
+            arch.set(x, Y + 1, entranceZ(d) + 3, Material.IRON_BARS);
         }
         // Ender chests either side of the mine approach.
-        arch.set(w[2] - 2, Y + 1, ENTRANCE_Z - 5, Material.ENDER_CHEST);
-        arch.set(w[2] - 2, Y + 1, ENTRANCE_Z + 5, Material.ENDER_CHEST);
+        arch.set(w[2] - 2, Y + 1, entranceZ(d) - 5, Material.ENDER_CHEST);
+        arch.set(w[2] - 2, Y + 1, entranceZ(d) + 5, Material.ENDER_CHEST);
 
         // The mine gate: an archway on the mine's face with the rank letter in quartz above it,
         // cobweb wire along the top — the single most recognisable prison-server image.
@@ -626,55 +716,41 @@ public class WorldBuilder {
         for (int dz = -4; dz <= 4; dz++) {
             for (int dy = 1; dy <= 6; dy++) {
                 boolean frame = Math.abs(dz) == 4 || dy == 6;
-                arch.set(gx, Y + dy, ENTRANCE_Z + dz, frame ? Material.SMOOTH_QUARTZ : Material.IRON_BARS);
+                arch.set(gx, Y + dy, entranceZ(d) + dz, frame ? Material.SMOOTH_QUARTZ : Material.IRON_BARS);
             }
         }
-        for (int dz = -5; dz <= 5; dz++) arch.set(gx, Y + 7, ENTRANCE_Z + dz, (dz % 3 == 0) ? Material.IRON_BARS : Material.COBWEB);
-        BlockFont.write(world, d.rank, gx, Y + 15, ENTRANCE_Z - 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
-        BlockFont.write(world, "MINE", gx, Y + 26, ENTRANCE_Z - BlockFont.width("MINE") / 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
+        for (int dz = -5; dz <= 5; dz++) arch.set(gx, Y + 7, entranceZ(d) + dz, (dz % 3 == 0) ? Material.IRON_BARS : Material.COBWEB);
+        BlockFont.write(world, d.rank, gx, Y + 15, entranceZ(d) - 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
+        BlockFont.write(world, "MINE", gx, Y + 26, entranceZ(d) - BlockFont.width("MINE") / 2, BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
 
         sign(w[0] + 1, Y + 2, w[1] + 4, BlockFace.EAST, "§6§l" + d.rank + "-WARD", "Mine " + d.rank,
                 "Rare: " + prettyName(d.rare), String.format("%.0f%% rare", rarePercentFor(d.rank)));
     }
 
     /**
-     * A single corridor running north of every mine (mines all share z1=0, so a line at
-     * BYPASS_Z sits outside every one of them, however wide the late-game mines get). Every
-     * ward gets a short spur connecting it to this corridor from the ward's own north wall.
-     * This is the fix for wards previously only being reachable by walking straight through
-     * the mine in between them — the bypass never enters a single mine's interior.
+     * Each lane gets its own single corridor running outside every mine in that lane (every
+     * mine in a lane shares the same hub-side edge, so one bypass line sits clear of all of
+     * them, however wide the late-game mines get). Every ward gets a short spur connecting it
+     * to its lane's corridor from the ward's own outer wall. This is what stops wards from
+     * only being reachable by walking straight through the mine in between them — the bypass
+     * never enters a single mine's interior.
      */
+    private static final int LEFT_BYPASS_Z = LEFT_ENTRANCE_Z - 18, RIGHT_BYPASS_Z = RIGHT_ENTRANCE_Z - 18;
+
+    private List<RankMineData.Def> laneOrder(boolean left) {
+        List<RankMineData.Def> out = new ArrayList<>();
+        for (RankMineData.Def d : RankMineData.RANKS.values()) {
+            if (d.rank.equals("FREE") || isLeft(d.rank) != left) continue;
+            out.add(d);
+        }
+        return out;
+    }
+
     private void buildWardWalkways() {
-        List<RankMineData.Def> ordered = new ArrayList<>();
-        for (RankMineData.Def d : RankMineData.RANKS.values()) if (!d.rank.equals("FREE")) ordered.add(d);
+        buildLaneWalkways(true, LEFT_ENTRANCE_Z, LEFT_BYPASS_Z);
+        buildLaneWalkways(false, RIGHT_ENTRANCE_Z, RIGHT_BYPASS_Z);
 
-        // Hub east gate to A-Ward — the one directly-adjacent connection.
-        walkway(HUB[2] + 1, wardRect(ordered.get(0))[0] - 1, ENTRANCE_Z, 3);
-
-        // Each ward's own approach to its mine (unchanged — a dead-end spur, not a through-route).
-        for (RankMineData.Def d : ordered) {
-            int[] w = wardRect(d);
-            walkway(w[2] + 1, d.x1 - 1, ENTRANCE_Z, 2);
-        }
-
-        // The bypass corridor itself, running the full length of the mine row.
-        int firstX = wardRect(ordered.get(0))[0];
-        int lastX = ordered.get(ordered.size() - 1).x2;
-        walkway(firstX, lastX, BYPASS_Z, 3);
-
-        // A connector linking the hub's own gate straight up to the bypass, so it's reachable
-        // without detouring through A-Ward specifically.
-        connector((HUB[2] + firstX) / 2, BYPASS_Z, ENTRANCE_Z, 3);
-
-        // One spur per ward, from its north wall down to the bypass corridor.
-        for (RankMineData.Def d : ordered) {
-            int[] w = wardRect(d);
-            int midX = (w[0] + w[2]) / 2;
-            arch.doorway(midX, Y + 1, w[1], false, 1, 4, Material.SMOOTH_QUARTZ);
-            connector(midX, w[1] - 1, BYPASS_Z + 3, 2);
-        }
-
-        // Path from the hub walkway south to the fishing area.
+        // Direct path from the hub's own north wall down to the fishing area.
         for (int z = FISH_PATH[1]; z <= FISH_PATH[3]; z++) {
             for (int x = FISH_PATH[0]; x <= FISH_PATH[2]; x++) {
                 boolean edge = x == FISH_PATH[0] || x == FISH_PATH[2];
@@ -682,6 +758,39 @@ public class WorldBuilder {
                 if (edge) arch.set(x, Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);
             }
             if (z % 8 == 0) { arch.set(FISH_PATH[0] - 1, Y + 2, z, Material.LANTERN); }
+        }
+    }
+
+    /** Builds one lane's whole walkway system: hub gate -> first ward, per-ward mine spurs,
+     *  and the bypass corridor with a spur into every ward — same shape as the old single
+     *  line, just parameterised so it can run twice, once per lane. */
+    private void buildLaneWalkways(boolean left, int entranceZ, int bypassZ) {
+        List<RankMineData.Def> ordered = laneOrder(left);
+        if (ordered.isEmpty()) return;
+
+        // Hub gate to the first ward in this lane.
+        walkway(HUB[2] + 1, wardRect(ordered.get(0))[0] - 1, entranceZ, 3);
+
+        // Each ward's own dead-end approach to its mine.
+        for (RankMineData.Def d : ordered) {
+            int[] w = wardRect(d);
+            walkway(w[2] + 1, d.x1 - 1, entranceZ, 2);
+        }
+
+        // The bypass corridor for this lane, running the full length of its mine row.
+        int firstX = wardRect(ordered.get(0))[0];
+        int lastX = ordered.get(ordered.size() - 1).x2;
+        walkway(firstX, lastX, bypassZ, 3);
+
+        // A connector linking the hub's own gate straight to this lane's bypass.
+        connector((HUB[2] + firstX) / 2, bypassZ, entranceZ, 3);
+
+        // One spur per ward, from its outer wall down to the bypass corridor.
+        for (RankMineData.Def d : ordered) {
+            int[] w = wardRect(d);
+            int midX = (w[0] + w[2]) / 2;
+            arch.doorway(midX, Y + 1, w[1], false, 1, 4, Material.SMOOTH_QUARTZ);
+            connector(midX, w[1] - 1, bypassZ + 3, 2);
         }
     }
 
@@ -708,7 +817,7 @@ public class WorldBuilder {
     // ---- Fishing area ----
 
     private void registerPondBounds() {
-        int x = 0;
+        int x = FISH_X1 + 20;
         for (FishingData.Pond pond : FishingData.PONDS.values()) {
             int size = 22 + pond.tier * 2;
             pond.x1 = x; pond.x2 = x + size;
@@ -719,7 +828,7 @@ public class WorldBuilder {
     }
 
     private void buildFishingArea() {
-        int x1 = -20, x2 = 440;
+        int x1 = FISH_X1, x2 = FISH_X2;
         arch.fillFlat(x1, FISH_Z1, x2, FISH_Z2, Y, Architect.Palette.of(Material.GRASS_BLOCK, Material.MOSS_BLOCK, 12, Material.COARSE_DIRT, 6));
         // Perimeter wall with sandstone posts so the edge reads as a promenade, not a cliff.
         arch.detailedWall(x1, Y + 1, FISH_Z1, x2, FISH_Z2, 3, Architect.FISHING_STONE,
@@ -834,8 +943,10 @@ public class WorldBuilder {
         arch.doorway(CORRIDOR[0], Y + 1, 0, true, 1, 4, f);                 // corridor west (same wall)
         arch.doorway(CORRIDOR[2], Y + 1, 0, true, 1, 4, f);                 // corridor → hub
         arch.doorway(HUB[0], Y + 1, 0, true, 1, 4, f);                      // hub west
-        arch.doorway(HUB[2], Y + 1, ENTRANCE_Z, true, 3, 6, f);             // hub → wards: grand gate
+        arch.doorway(HUB[2], Y + 1, LEFT_ENTRANCE_Z, true, 3, 6, f);        // hub → left wing (odd wards)
+        arch.doorway(HUB[2], Y + 1, RIGHT_ENTRANCE_Z, true, 3, 6, f);       // hub → right wing (even wards)
         int hubMidX = (HUB[0] + HUB[2]) / 2;
+        arch.doorway(FISH_GATE_X, Y + 1, HUB[1], false, 3, 4, f);           // hub → fishing (north wall, direct)
         int cellEntranceX = CELLS[0] + 2 + CELL_SIZE / 2; // centre of the vestibule column
         arch.doorway(hubMidX, Y + 1, HUB[3], false, 2, 5, f);               // hub → cell block
         arch.doorway(cellEntranceX, Y + 1, CELLS[1], false, 2, 5, f);       // opens into the vestibule, not a cell wall
@@ -857,10 +968,11 @@ public class WorldBuilder {
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.rank.equals("FREE")) continue;
             int[] w = wardRect(d);
-            arch.doorway(w[0], Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward west
-            arch.doorway(w[2], Y + 1, ENTRANCE_Z, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward east
+            int ez = entranceZ(d);
+            arch.doorway(w[0], Y + 1, ez, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward west
+            arch.doorway(w[2], Y + 1, ez, true, 1, 4, Material.CHISELED_DEEPSLATE);   // ward east
             for (int dz = -1; dz <= 1; dz++) for (int dy = 1; dy <= 3; dy++) {
-                arch.set(d.x1, Y + dy, d.z1 + ENTRANCE_Z + dz, Material.AIR);               // mine door (single entrance — mines are dead-ends off their ward)
+                arch.set(d.x1, Y + dy, ez + dz, Material.AIR);               // mine door (single entrance — mines are dead-ends off their ward)
             }
             int[] p = pitRect(d);
             if (p != null && List.of("F", "M", "T").contains(d.rank)) {
@@ -873,10 +985,11 @@ public class WorldBuilder {
         // Fishing path into the fishing area's north wall.
         arch.doorway((FISH_PATH[0] + FISH_PATH[2]) / 2, Y + 1, FISH_Z2, false, 2, 4, Material.CHISELED_SANDSTONE);
 
-        // Fishing area's east edge → logging yard's west wall.
+        // Fishing area's west edge → logging yard's east wall (logging/farm sit west of the
+        // fishing area, on negative X, well clear of every mine which only ever runs positive X).
         int loggingMidZ = (LOGGING[1] + LOGGING[3]) / 2;
-        arch.doorway(LOGGING[0], Y + 1, loggingMidZ, true, 2, 4, Material.SMOOTH_SANDSTONE);
-        walkway(400, LOGGING[0] - 1, loggingMidZ, 2);
+        arch.doorway(LOGGING[2], Y + 1, loggingMidZ, true, 2, 4, Material.SMOOTH_SANDSTONE);
+        walkway(LOGGING[2] + 1, FISH_X1 - 1, loggingMidZ, 2);
 
         // Logging yard's south wall → farm's north wall.
         int farmMidX = (FARM[0] + FARM[2]) / 2;
@@ -942,9 +1055,14 @@ public class WorldBuilder {
     }
 
     private void setupWorldBorder() {
-        int minX = STARTER[0] - 20, maxX = Math.max(lastMineX2() + 40, FARM[2] + 20);
-        int minZ = FISH_Z1 - 20, maxZ = CELLS[3] + 20;
-        for (int[] b : mineBounds.values()) maxZ = Math.max(maxZ, b[5] + 20);
+        int minX = Math.min(STARTER[0], LOGGING[0]) - 20, maxX = Math.max(lastMineX2() + 40, FARM[2] + 20);
+        int minZ = Math.min(FISH_Z1, HUB[1]) - 20, maxZ = Math.max(CELLS[3], HUB[3]) + 20;
+        // Right-lane mines run toward very negative Z (their far edge is z1, not z2) — scan
+        // both ends of every mine's box, not just z2, or the border would clip that whole lane.
+        for (int[] b : mineBounds.values()) {
+            minZ = Math.min(minZ, b[2] - 20);
+            maxZ = Math.max(maxZ, b[5] + 20);
+        }
         world.getWorldBorder().setCenter((minX + maxX) / 2.0, (minZ + maxZ) / 2.0);
         world.getWorldBorder().setSize(Math.max(maxX - minX, maxZ - minZ) + 40);
     }

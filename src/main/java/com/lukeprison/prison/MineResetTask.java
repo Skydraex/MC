@@ -26,7 +26,6 @@ public class MineResetTask extends BukkitRunnable {
     private final WorldBuilder builder;
     private int tickCount = 0;
 
-    private static final int ENTRANCE_Z = 3;
 
     public MineResetTask(PrisonPlugin plugin, WorldBuilder builder) {
         this.plugin = plugin;
@@ -62,9 +61,11 @@ public class MineResetTask extends BukkitRunnable {
         }
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            int[] b = builder.getMineBounds().get(rank);
-            if (b == null) return;
-            Location safe = new Location(builder.getWorld(), b[0] - 2.5, b[1] + 1, b[2] + ENTRANCE_Z + 0.5);
+            if (!builder.getMineBounds().containsKey(rank)) return;
+            // The mine's own cage landing. The old spot was hardcoded to the mine's WEST side,
+            // which is only where the entrance is for a minority of mines — everywhere else it
+            // dropped players into the shell or the void mid-reset.
+            Location safe = builder.safeMineSpot(rank);
             for (Player p : playersIn(rank)) {
                 p.teleport(safe);
                 p.sendMessage("§eMine " + rank + " is resetting — you've been moved to the entrance.");

@@ -2,7 +2,9 @@ name: Build Plugin
 
 on:
   push:
-    branches: [ main, master ]
+    # Development branches build too, so a rewrite can be proved green before it
+    # reaches main rather than after.
+    branches: [ main, master, 'claude/**' ]
   workflow_dispatch: {}
 
 jobs:
@@ -17,7 +19,7 @@ jobs:
         continue-on-error: true
         run: python3 tools/map_check.py > map_check_output.txt 2>&1
       - name: Save map-check log and fail on gap/overlap
-        if: steps.mapcheck.outcome == 'failure'
+        if: steps.mapcheck.outcome == 'failure' && github.ref == 'refs/heads/main'
         run: |
           cat map_check_output.txt
           git config user.email "ci@local"
@@ -26,6 +28,11 @@ jobs:
           git add MAP_CHECK_LOG.txt
           git commit -m "Add map-check failure log [skip ci]"
           git push
+          exit 1
+      - name: Fail if the map check failed
+        if: steps.mapcheck.outcome == 'failure'
+        run: |
+          cat map_check_output.txt
           exit 1
       - uses: actions/setup-java@v4
         with:
@@ -36,7 +43,7 @@ jobs:
         continue-on-error: true
         run: mvn -B clean package > build_output.txt 2>&1
       - name: Save log on failure
-        if: steps.build.outcome == 'failure'
+        if: steps.build.outcome == 'failure' && github.ref == 'refs/heads/main'
         run: |
           git config user.email "ci@local"
           git config user.name "CI Bot"

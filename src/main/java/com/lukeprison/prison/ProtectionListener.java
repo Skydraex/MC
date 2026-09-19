@@ -51,8 +51,48 @@ public class ProtectionListener implements Listener {
     public void setLoggingBounds(int[] bounds) { this.loggingBounds = bounds; }
 
     private boolean inMine(int x, int y, int z) {
-        for (int[] b : mineBounds.values()) {
-            if (x > b[0] && x < b[3] && y > b[1] && y < b[4] && z > b[2] && z < b[5]) return true;
+        return mineAt(x, y, z) != null;
+    }
+
+    /** Which mine contains this block, or null. */
+    private String mineAt(int x, int y, int z) {
+        for (Map.Entry<String, int[]> e : mineBounds.entrySet()) {
+            int[] b = e.getValue();
+            if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5]) return e.getKey();
+        }
+        return null;
+    }
+
+    /**
+     * Only a mine's own ore materials may be broken.
+     *
+     * The pit's walls, floor and rim are decorative stone over a hidden bedrock backstop. Without
+     * this check a player standing in the ore could mine sideways into the cladding and expose
+     * the structure — the whole point of cladding it was that nobody ever sees bedrock.
+     */
+    private boolean isMinableHere(String rank, Material type) {
+        RankMineData.Def d = RankMineData.RANKS.get(rank);
+        if (d == null) return false;
+        return type == Material.matchMaterial(d.filler)
+                || type == Material.matchMaterial(d.common)
+                || type == Material.matchMaterial(d.rare);
+    }
+
+    /**
+     * The interior of a cell this player owns.
+     *
+     * Prison servers conventionally give players a plot they may build in while everything else
+     * stays locked — the nested "deny everywhere, allow inside your own region" pattern. This is
+     * that, done natively: the cell's shell, bars and floor stay protected, but the air inside a
+     * cell you have claimed is yours.
+     */
+    private boolean inOwnCell(Player p, int x, int y, int z) {
+        for (CellManager.CellRect c : plugin.builder().getCellRects().values()) {
+            boolean inside = x > c.x1() && x < c.x2() && z > c.z1() && z < c.z2()
+                    && y > c.y() && y < c.y() + 5;
+            if (!inside) continue;
+            java.util.UUID owner = plugin.ranks().cellOwner(c.number());
+            return owner != null && owner.equals(p.getUniqueId());
         }
         return false;
     }
@@ -80,9 +120,19 @@ public class ProtectionListener implements Listener {
         boolean isTree = type == Material.OAK_LOG || type == Material.OAK_LEAVES;
         if (isTree && inLoggingYard(e.getBlock().getX(), e.getBlock().getZ())) return;
 
-        if (!inMine(e.getBlock().getX(), e.getBlock().getY(), e.getBlock().getZ())) {
+        int bx = e.getBlock().getX(), by = e.getBlock().getY(), bz = e.getBlock().getZ();
+
+        if (inOwnCell(p, bx, by, bz)) return;      // your cell, your business
+
+        String mine = mineAt(bx, by, bz);
+        if (mine == null) {
             e.setCancelled(true);
             p.sendMessage("§cYou can only mine inside a mine.");
+            return;
+        }
+        if (!isMinableHere(mine, type)) {
+            e.setCancelled(true);
+            p.sendMessage("§cThat's part of the mine structure, not ore.");
         }
     }
 
@@ -96,12 +146,18 @@ public class ProtectionListener implements Listener {
         if (bypasses(p)) return;
 
         Material type = e.getBlockPlaced().getType();
+
+        if (inOwnCell(p, e.getBlockPlaced().getX(), e.getBlockPlaced().getY(),
+                      e.getBlockPlaced().getZ())) {
+            return;                                 // build freely inside a cell you own
+        }
+
         boolean shopFurniture = type == Material.CHEST || type == Material.TRAPPED_CHEST
                 || type.name().endsWith("_SIGN");
 
         if (!shopFurniture) {
             e.setCancelled(true);
-            p.sendMessage("§cYou can't build here. Chests and signs only, for shops.");
+            p.sendMessage("§cYou can't build here. Claim a cell with /cell to get somewhere you can.");
             return;
         }
 

@@ -156,11 +156,11 @@ public class MenuGUI implements Listener {
             p.sendMessage("§cYou haven't unlocked Mine " + rank + " yet.");
             return false;
         }
-        int[] b = mineBounds.get(rank);
-        if (b == null) return false;
-        // Drop them just inside the entrance, on the floor.
-        Location loc = new Location(plugin.builder().getWorld(), b[0] + 2.5, b[1] + 1, b[2] + 3.5);
-        p.teleport(loc);
+        if (!mineBounds.containsKey(rank)) return false;
+        // Always the mine's cage landing: on the rim, over solid floor, never over the pit and
+        // never inside the ore. Computing a spot from the mine's corner (as this used to) put
+        // players two blocks inside a solid cube of ore and suffocated them on every warp.
+        p.teleport(plugin.builder().safeMineSpot(rank));
         p.sendMessage("§aWarped to Mine " + rank + ".");
         return true;
     }

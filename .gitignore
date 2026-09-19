@@ -7,3 +7,6 @@ __pycache__/
 
 # layout_gen.py's debug dump — regenerate with `python3 tools/layout_gen.py`
 tools/layout.json
+
+# javac argument files from local syntax checks
+javac.*.args

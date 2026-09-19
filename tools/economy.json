@@ -1,0 +1,272 @@
+{
+ "A": {
+  "cost": 0,
+  "next": "B",
+  "filler": "STONE",
+  "common": "COAL_ORE",
+  "rare": "IRON_ORE",
+  "fillerPrice": 0.5,
+  "commonPrice": 3.0,
+  "rarePrice": 20.0
+ },
+ "B": {
+  "cost": 5000,
+  "next": "C",
+  "filler": "STONE",
+  "common": "COAL_ORE",
+  "rare": "IRON_ORE",
+  "fillerPrice": 0.95,
+  "commonPrice": 5.7,
+  "rarePrice": 38.0
+ },
+ "C": {
+  "cost": 7800,
+  "next": "D",
+  "filler": "STONE",
+  "common": "COAL_ORE",
+  "rare": "IRON_ORE",
+  "fillerPrice": 1.4,
+  "commonPrice": 8.4,
+  "rarePrice": 56.0
+ },
+ "D": {
+  "cost": 12000,
+  "next": "E",
+  "filler": "STONE",
+  "common": "COAL_ORE",
+  "rare": "IRON_ORE",
+  "fillerPrice": 1.85,
+  "commonPrice": 11.1,
+  "rarePrice": 74.0
+ },
+ "E": {
+  "cost": 18600,
+  "next": "F",
+  "filler": "STONE",
+  "common": "IRON_ORE",
+  "rare": "GOLD_ORE",
+  "fillerPrice": 2.3,
+  "commonPrice": 13.8,
+  "rarePrice": 92.0
+ },
+ "F": {
+  "cost": 28900,
+  "next": "G",
+  "filler": "STONE",
+  "common": "IRON_ORE",
+  "rare": "GOLD_ORE",
+  "fillerPrice": 2.75,
+  "commonPrice": 16.5,
+  "rarePrice": 110.0
+ },
+ "G": {
+  "cost": 44700,
+  "next": "H",
+  "filler": "STONE",
+  "common": "IRON_ORE",
+  "rare": "GOLD_ORE",
+  "fillerPrice": 3.2,
+  "commonPrice": 19.2,
+  "rarePrice": 128.0
+ },
+ "H": {
+  "cost": 69300,
+  "next": "I",
+  "filler": "STONE",
+  "common": "IRON_ORE",
+  "rare": "GOLD_ORE",
+  "fillerPrice": 3.65,
+  "commonPrice": 21.9,
+  "rarePrice": 146.0
+ },
+ "I": {
+  "cost": 90100,
+  "next": "J",
+  "filler": "DEEPSLATE",
+  "common": "GOLD_ORE",
+  "rare": "REDSTONE_ORE",
+  "fillerPrice": 4.1,
+  "commonPrice": 24.6,
+  "rarePrice": 164.0
+ },
+ "J": {
+  "cost": 117200,
+  "next": "K",
+  "filler": "DEEPSLATE",
+  "common": "GOLD_ORE",
+  "rare": "REDSTONE_ORE",
+  "fillerPrice": 4.55,
+  "commonPrice": 27.3,
+  "rarePrice": 182.0
+ },
+ "K": {
+  "cost": 152300,
+  "next": "L",
+  "filler": "DEEPSLATE",
+  "common": "GOLD_ORE",
+  "rare": "REDSTONE_ORE",
+  "fillerPrice": 5.0,
+  "commonPrice": 30.0,
+  "rarePrice": 200.0
+ },
+ "L": {
+  "cost": 198000,
+  "next": "M",
+  "filler": "DEEPSLATE",
+  "common": "GOLD_ORE",
+  "rare": "REDSTONE_ORE",
+  "fillerPrice": 5.45,
+  "commonPrice": 32.7,
+  "rarePrice": 218.0
+ },
+ "M": {
+  "cost": 257400,
+  "next": "N",
+  "filler": "DEEPSLATE",
+  "common": "REDSTONE_ORE",
+  "rare": "LAPIS_ORE",
+  "fillerPrice": 5.9,
+  "commonPrice": 35.4,
+  "rarePrice": 236.0
+ },
+ "N": {
+  "cost": 334700,
+  "next": "O",
+  "filler": "DEEPSLATE",
+  "common": "REDSTONE_ORE",
+  "rare": "LAPIS_ORE",
+  "fillerPrice": 6.35,
+  "commonPrice": 38.1,
+  "rarePrice": 254.0
+ },
+ "O": {
+  "cost": 435100,
+  "next": "P",
+  "filler": "DEEPSLATE",
+  "common": "REDSTONE_ORE",
+  "rare": "LAPIS_ORE",
+  "fillerPrice": 6.8,
+  "commonPrice": 40.8,
+  "rarePrice": 272.0
+ },
+ "P": {
+  "cost": 565600,
+  "next": "Q",
+  "filler": "DEEPSLATE",
+  "common": "REDSTONE_ORE",
+  "rare": "LAPIS_ORE",
+  "fillerPrice": 7.25,
+  "commonPrice": 43.5,
+  "rarePrice": 290.0
+ },
+ "Q": {
+  "cost": 735300,
+  "next": "R",
+  "filler": "DEEPSLATE",
+  "common": "LAPIS_ORE",
+  "rare": "DIAMOND_ORE",
+  "fillerPrice": 7.7,
+  "commonPrice": 46.2,
+  "rarePrice": 308.0
+ },
+ "R": {
+  "cost": 955900,
+  "next": "S",
+  "filler": "DEEPSLATE",
+  "common": "LAPIS_ORE",
+  "rare": "DIAMOND_ORE",
+  "fillerPrice": 8.15,
+  "commonPrice": 48.9,
+  "rarePrice": 326.0
+ },
+ "S": {
+  "cost": 1242600,
+  "next": "T",
+  "filler": "DEEPSLATE",
+  "common": "LAPIS_ORE",
+  "rare": "DIAMOND_ORE",
+  "fillerPrice": 8.6,
+  "commonPrice": 51.6,
+  "rarePrice": 344.0
+ },
+ "T": {
+  "cost": 1615400,
+  "next": "U",
+  "filler": "DEEPSLATE",
+  "common": "LAPIS_ORE",
+  "rare": "DIAMOND_ORE",
+  "fillerPrice": 9.05,
+  "commonPrice": 54.3,
+  "rarePrice": 362.0
+ },
+ "U": {
+  "cost": 2100000,
+  "next": "V",
+  "filler": "DEEPSLATE",
+  "common": "DIAMOND_ORE",
+  "rare": "EMERALD_ORE",
+  "fillerPrice": 9.5,
+  "commonPrice": 57.0,
+  "rarePrice": 380.0
+ },
+ "V": {
+  "cost": 2730000,
+  "next": "W",
+  "filler": "DEEPSLATE",
+  "common": "DIAMOND_ORE",
+  "rare": "EMERALD_ORE",
+  "fillerPrice": 9.95,
+  "commonPrice": 59.7,
+  "rarePrice": 398.0
+ },
+ "W": {
+  "cost": 3549000,
+  "next": "X",
+  "filler": "DEEPSLATE",
+  "common": "DIAMOND_ORE",
+  "rare": "EMERALD_ORE",
+  "fillerPrice": 10.4,
+  "commonPrice": 62.4,
+  "rarePrice": 416.0
+ },
+ "X": {
+  "cost": 4613700,
+  "next": "Y",
+  "filler": "DEEPSLATE",
+  "common": "DIAMOND_ORE",
+  "rare": "EMERALD_ORE",
+  "fillerPrice": 10.85,
+  "commonPrice": 65.1,
+  "rarePrice": 434.0
+ },
+ "Y": {
+  "cost": 5997900,
+  "next": "Z",
+  "filler": "REINFORCED_DEEPSLATE",
+  "common": "EMERALD_ORE",
+  "rare": "SCULK",
+  "fillerPrice": 11.3,
+  "commonPrice": 67.8,
+  "rarePrice": 452.0
+ },
+ "Z": {
+  "cost": 7797200,
+  "next": "FREE",
+  "filler": "REINFORCED_DEEPSLATE",
+  "common": "EMERALD_ORE",
+  "rare": "SCULK",
+  "fillerPrice": 11.75,
+  "commonPrice": 70.5,
+  "rarePrice": 470.0
+ },
+ "FREE": {
+  "cost": 12476000,
+  "next": "FREE",
+  "filler": "AIR",
+  "common": "AIR",
+  "rare": "AIR",
+  "fillerPrice": 0.0,
+  "commonPrice": 0.0,
+  "rarePrice": 0.0
+ }
+}

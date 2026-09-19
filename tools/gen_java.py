@@ -1,282 +1,239 @@
 #!/usr/bin/env python3
 """
-Regenerates RankMineData.java and MapLayout.java from tools/layout_gen.py's
-validated geometry, while preserving every rank's existing economic fields
-(cost, next, filler, common, rare, fillerPrice, commonPrice, rarePrice) by
-extracting them out of the CURRENT RankMineData.java via regex first.
+Bakes tools/layout_gen.py's validated geometry into the plugin's two data
+classes, MapLayout.java and RankMineData.java.
 
-Run from the tools/ directory: `cd tools && python3 gen_java.py`
-(it does `from layout_gen import get_layout`, a relative import, same as
-layout_gen.py's own __main__ block and map_check.py both require).
+Those two files are GENERATED — never hand-edit them. WorldBuilder.java builds
+exactly what they say and never recomputes geometry, so the Python layout, the
+validator and the in-game world can't drift apart.
+
+Rank economics (cost, next, ore mix, sell prices) live in tools/economy.json,
+not in the Java. The previous version scraped them back out of the generated
+RankMineData.java with a regex, which silently broke the moment the Def
+signature changed — which is exactly what this rewrite does.
+
+Run: `cd tools && python3 gen_java.py`
 """
-import re
+import json
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-from layout_gen import get_layout  # noqa: E402
+
+from layout_gen import get_layout, RANKS  # noqa: E402
 
 RANK_DATA_PATH = os.path.join(REPO, "src/main/java/com/lukeprison/prison/RankMineData.java")
 MAP_LAYOUT_PATH = os.path.join(REPO, "src/main/java/com/lukeprison/prison/MapLayout.java")
+ECONOMY_PATH = os.path.join(HERE, "economy.json")
 
-RANKS_ORDER = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-# ---------------------------------------------------------------------------
-# Step 1: extract existing economic fields for every rank (including FREE)
-# ---------------------------------------------------------------------------
-
-PUT_RE = re.compile(
-    r'RANKS\.put\("(?P<rank>\w+)",\s*new Def\(\s*'
-    r'"(?P<rank2>\w+)",\s*(?P<cost>\d+),\s*"(?P<next>\w+)",\s*'
-    r'"(?P<filler>\w+)",\s*"(?P<common>\w+)",\s*"(?P<rare>\w+)",\s*'
-    r'(?P<fillerPrice>[\d.]+),\s*(?P<commonPrice>[\d.]+),\s*(?P<rarePrice>[\d.]+),\s*'
-    r'"(?P<wall>\w+)",'
-)
-
-existing = {}
-with open(RANK_DATA_PATH) as f:
-    src = f.read()
-
-for m in PUT_RE.finditer(src):
-    d = m.groupdict()
-    existing[d["rank"]] = {
-        "cost": int(d["cost"]),
-        "next": d["next"],
-        "filler": d["filler"],
-        "common": d["common"],
-        "rare": d["rare"],
-        "fillerPrice": float(d["fillerPrice"]),
-        "commonPrice": float(d["commonPrice"]),
-        "rarePrice": float(d["rarePrice"]),
-    }
-
-missing = [r for r in RANKS_ORDER + ["FREE"] if r not in existing]
-if missing:
-    print("ERROR: could not extract economic fields for:", missing)
-    sys.exit(1)
-
-# ---------------------------------------------------------------------------
-# Step 2: pull the new, validated geometry out of layout_gen.get_layout()
-# ---------------------------------------------------------------------------
-
-layout = get_layout()
-if layout["overlap_violations"] or layout["text_zone_violations"]:
-    print("ERROR: layout_gen reports violations, refusing to generate Java from a bad layout")
-    sys.exit(1)
-
-regions = layout["regions"]
-gates = layout["gates"]
-hub_half = layout["hub_half"]
-hub = layout["hub"]
-specials_cfg = layout["specials"]
+GENERATED_BANNER = """/*
+ * GENERATED FILE — do not edit by hand.
+ * Produced by tools/gen_java.py from tools/layout_gen.py (geometry)
+ * and tools/economy.json (rank economics). Re-run `cd tools && python3 gen_java.py`.
+ */"""
 
 
-def r_int(rect):
+def ints(rect):
     return [int(round(v)) for v in rect]
 
 
-HUB_HALF = int(round(hub_half))
-HUB = [-HUB_HALF, -HUB_HALF, HUB_HALF, HUB_HALF]
-
-# Mine height band, unchanged from the previous file (a fixed vertical slab under the
-# hub floor level Y=95; not part of the 2D radial layout tools/layout_gen.py governs).
-MINE_Y1, MINE_Y2 = 95, 125
-
-# ---------------------------------------------------------------------------
-# Step 3: build each rank's Def geometry: mine rect (x1,y1,z1,x2,y2,z2) and
-# ward rect (wx1,wz1,wx2,wz2), from regions["mine_<rank>"] / ["ward_<rank>"].
-# ---------------------------------------------------------------------------
-
-def def_line(rank):
-    e = existing[rank]
-    if rank == "FREE":
-        return (
-            f'        RANKS.put("FREE", new Def("FREE",{e["cost"]},"FREE","AIR","AIR","AIR",0,0,0,"N",'
-            f'0,0,0,0,0,0,0,0,0,0));'
-        )
-    mine = r_int(regions[f"mine_{rank}"])
-    ward = r_int(regions[f"ward_{rank}"])
-    wall = gates[rank]["wall"]
-    x1, z1, x2, z2 = mine
-    wx1, wz1, wx2, wz2 = ward
-    return (
-        f'        RANKS.put("{rank}", new Def("{rank}",{e["cost"]},"{e["next"]}",'
-        f'"{e["filler"]}","{e["common"]}","{e["rare"]}",'
-        f'{e["fillerPrice"]},{e["commonPrice"]},{e["rarePrice"]},"{wall}",'
-        f'{x1},{MINE_Y1},{z1},{x2},{MINE_Y2},{z2},'
-        f'{wx1},{wz1},{wx2},{wz2}));'
-    )
+def arr(rect):
+    return "{" + ",".join(str(v) for v in ints(rect)) + "}"
 
 
-rank_lines = "\n".join(def_line(r) for r in RANKS_ORDER)
-free_line = def_line("FREE")
+def main():
+    layout = get_layout()
+    if layout["overlap_violations"] or layout["text_zone_violations"]:
+        print("ERROR: layout_gen reports violations — refusing to generate Java from a bad layout")
+        return 1
 
-RANK_MINE_DATA_JAVA = f"""package com.lukeprison.prison;
-import java.util.LinkedHashMap;
-import java.util.Map;
-public class RankMineData {{
-    /** A mine's full rectangle (excavated ore room), and the ward rectangle directly
-     *  between it and its hub gate. Both are baked in from the validated radial-hub
-     *  layout (tools/layout_gen.py) — WorldBuilder never re-derives these numbers,
-     *  it only builds exactly what's here. */
-    public static class Def {{
-        public final String rank, next, filler, common, rare, wall;
-        public final int cost, x1,y1,z1,x2,y2,z2, wx1,wz1,wx2,wz2;
-        public final double fillerPrice, commonPrice, rarePrice;
-        public Def(String rank,int cost,String next,String filler,String common,String rare,
-                   double fillerPrice,double commonPrice,double rarePrice,String wall,
-                   int x1,int y1,int z1,int x2,int y2,int z2,
-                   int wx1,int wz1,int wx2,int wz2){{
-            this.rank=rank;this.cost=cost;this.next=next;this.filler=filler;this.common=common;this.rare=rare;
-            this.fillerPrice=fillerPrice;this.commonPrice=commonPrice;this.rarePrice=rarePrice;this.wall=wall;
-            this.x1=x1;this.y1=y1;this.z1=z1;this.x2=x2;this.y2=y2;this.z2=z2;
-            this.wx1=wx1;this.wz1=wz1;this.wx2=wx2;this.wz2=wz2;
-        }}
-    }}
-    public static final Map<String, Def> RANKS = new LinkedHashMap<>();
-    static {{
-{rank_lines}
-{free_line}
-    }}
-}}
-"""
+    econ = json.load(open(ECONOMY_PATH))
+    missing = [r for r in RANKS + ["FREE"] if r not in econ]
+    if missing:
+        print(f"ERROR: tools/economy.json is missing ranks: {missing}")
+        return 1
 
-# ---------------------------------------------------------------------------
-# Step 4: MapLayout.java — HUB, CORRIDOR_LEN/WARD_DEPTH, INTAKE + STARTER
-# placement (sized/placed relative to the NEW, smaller hub), and SPECIALS.
-# ---------------------------------------------------------------------------
+    regions = layout["regions"]
+    gates = layout["gates"]
+    lifts = layout["lifts"]
 
-CORRIDOR_LEN = int(round(regions["corridor_A"][3] - regions["corridor_A"][1])) if False else None
-# (CORRIDOR_LEN/WARD_DEPTH are constants in layout_gen, re-import them directly instead
-#  of trying to reverse-engineer them from a region — see below.)
-import layout_gen  # noqa: E402
-CORRIDOR_LEN = layout_gen.CORRIDOR_LEN
-WARD_DEPTH = layout_gen.WARD_DEPTH
+    # ---------------------------------------------------------------- MapLayout
 
-# Find the clear "corner buffer" gap on the west wall (the wall INTAKE enters through),
-# nearest the NORTH corner, by looking at the actual placed regions on that wall — don't
-# assume geometry, derive the gap from the real numbers, then double check it against
-# every region (including specials) below.
-w_wall_items = [r_int(v) for k, v in regions.items() if k.startswith(("ward_", "mine_", "room_", "corridor_"))
-                and layout_gen.assignment.get(k.split("_", 1)[1]) == "W"]
-# Also include the CELLS special's own regions (assignment dict only covers ranks).
-w_wall_items += [r_int(v) for k, v in regions.items() if k.endswith("_CELLS")]
-min_z_used = min(item[1] for item in w_wall_items)
-hub_w_x = HUB[0]
+    gate_lines = []
+    for name, g in gates.items():
+        gate_lines.append(
+            f'        new Gate("{name}", "{g["wall"]}", {int(round(g["centre"]))}, "{g["kind"]}", '
+            f'new int[]{arr(regions[f"corridor_{name}"])}, new int[]{arr(regions[f"ward_{name}"])}),')
 
-# Intake gate sits in the clear band between the hub's NW corner and the first thing
-# placed on the west wall (min_z_used), well inside it with margin on both sides.
-clear_top = -HUB_HALF
-clear_bottom = min_z_used
-INTAKE_GATE_Z = int(round((clear_top + clear_bottom) / 2 - (clear_bottom - clear_top) * 0.25))
-# ^ bias toward the corner (away from the first mine on this wall) for extra margin, since
-# STARTER's east-wall "SKY PRISON" banner (BlockFont, 10 chars wide) needs ~62 blocks of
-# clearance along Z and must not creep toward the first mine ward on this wall.
+    room_lines = []
+    for name in layout["room_specials"]:
+        room_lines.append(
+            f'        new Room("{name}", "{gates[name]["wall"]}", '
+            f'new int[]{arr(regions[f"ward_{name}"])}, new int[]{arr(regions[f"room_{name}"])}),')
 
-intake_half = max(6, WARD_DEPTH)  # full intake gate width, matches ward-scale proportions
-INTAKE_WARD = [hub_w_x - CORRIDOR_LEN - WARD_DEPTH, INTAKE_GATE_Z - intake_half,
-               hub_w_x - CORRIDOR_LEN, INTAKE_GATE_Z + intake_half]
-INTAKE_CORRIDOR = [hub_w_x - CORRIDOR_LEN, INTAKE_GATE_Z - 3,
-                    hub_w_x, INTAKE_GATE_Z + 3]
+    grounds_lines = []
+    for name in ("PONDS", "LOGGING", "FARM"):
+        grounds_lines.append(
+            f'        new Ground("{name}", new int[]{arr(regions[f"room_{name}"])}, '
+            f'new int[]{arr(regions[f"corridor_{name}LINK"])}),')
 
-# STARTER's east wall carries the giant "SKY PRISON" BlockFont banner (10 chars x (5+1)-1 =
-# 59 blocks wide), rendered along STARTER's Z dimension — so STARTER's Z-span (its "height")
-# must comfortably exceed 59 blocks, not just be "proportionally smaller" than the old 80.
-STARTER_GAP = 10
-STARTER_W, STARTER_H = 60, 90
-STARTER = [INTAKE_WARD[0] - STARTER_GAP - STARTER_W, INTAKE_GATE_Z - STARTER_H // 2,
-           INTAKE_WARD[0] - STARTER_GAP, INTAKE_GATE_Z + STARTER_H // 2]
+    map_layout = f"""{GENERATED_BANNER}
+package com.lukeprison.prison;
 
-# ---- Verify STARTER/INTAKE_WARD/INTAKE_CORRIDOR don't overlap ANY region (mines,
-# wards, corridors, special rooms) nor the hub itself, using the same overlap logic
-# tools/layout_gen.py and map_check.py use. ----
-
-def norm(r):
-    x1, z1, x2, z2 = r
-    return (min(x1, x2), min(z1, z2), max(x1, x2), max(z1, z2))
-
-
-def overlaps(a, b):
-    a = norm(a); b = norm(b)
-    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
-
-
-all_check = {"HUB": hub, **regions}
-new_rects = {"STARTER": STARTER, "INTAKE_WARD": INTAKE_WARD, "INTAKE_CORRIDOR": INTAKE_CORRIDOR}
-bad = []
-for nname, nrect in new_rects.items():
-    for ename, erect in all_check.items():
-        if ename == "HUB" and nname == "INTAKE_CORRIDOR":
-            continue  # INTAKE_CORRIDOR is meant to touch/enter the hub, not a violation
-        if overlaps(nrect, erect):
-            bad.append((nname, ename))
-
-if bad:
-    print("ERROR: new STARTER/INTAKE placement collides with existing regions:")
-    for a, b in bad:
-        print(" ", a, "<->", b)
-    sys.exit(1)
-else:
-    print(f"OK: STARTER/INTAKE_WARD/INTAKE_CORRIDOR verified clear of all {len(regions)} regions + HUB.")
-
-print(f"HUB_HALF={HUB_HALF}  HUB={HUB}")
-print(f"INTAKE_GATE_Z={INTAKE_GATE_Z}  clear band on W wall: [{clear_top:.0f}, {clear_bottom:.0f}]")
-print(f"INTAKE_WARD={INTAKE_WARD}")
-print(f"INTAKE_CORRIDOR={INTAKE_CORRIDOR}")
-print(f"STARTER={STARTER}  size={STARTER_W}x{STARTER_H}")
-
-specials_java = []
-for wall, (name, half, depth) in specials_cfg.items():
-    ward = r_int(regions[f"ward_{name}"])
-    room = r_int(regions[f"room_{name}"])
-    specials_java.append(
-        f'        new Special("{name}", "{wall}", new int[]{{{ward[0]},{ward[1]},{ward[2]},{ward[3]}}}, '
-        f'new int[]{{{room[0]},{room[1]},{room[2]},{room[3]}}}),'
-    )
-specials_block = "\n".join(specials_java)
-
-MAP_LAYOUT_JAVA = f"""package com.lukeprison.prison;
-/** The radial hub's fixed geometry — hub bounds, the player-intake path, and the
- *  four non-mine "special" gates (fishing, crates, yard, cells), each built exactly
- *  like a mine's own gate: a direct corridor off the hub wall, a ward/antechamber,
- *  then its own room. All baked in from the validated layout (tools/layout_gen.py);
- *  WorldBuilder only builds what's here, never recomputes it. */
+/**
+ * The prison's fixed geometry.
+ *
+ * The hub is a compact square whose perimeter carries GATES ONLY. Each gate
+ * opens through a short corridor into a ward; a mine's ward holds a cage lift
+ * down to its pit, while a room gate's ward opens straight into its room.
+ * Mine footprints therefore cost the hub no perimeter at all, which is what
+ * keeps it walkable.
+ */
 public class MapLayout {{
-    public static final int[] HUB = {{{HUB[0]},{HUB[1]},{HUB[2]},{HUB[3]}}};
-    public static final int CORRIDOR_LEN = {CORRIDOR_LEN}, WARD_DEPTH = {WARD_DEPTH};
+    public static final int[] HUB = {arr(layout["hub"])};
+    public static final int HUB_HALF = {layout["hub_half"]};
+    public static final int CORRIDOR_LEN = {layout["corridor_len"]};
+    public static final int WARD_DEPTH = {layout["ward_depth"]};
+    public static final int GATE_W = {layout["gate_w"]};
 
-    // Player intake enters through the hub's west wall, well inside the empty corner
-    // buffer — guaranteed clear of every mine/special by construction (verified by
-    // tools/gen_java.py against every region before this file is written).
-    public static final int INTAKE_GATE_Z = {INTAKE_GATE_Z};
-    public static final int[] INTAKE_WARD = {{{INTAKE_WARD[0]},{INTAKE_WARD[1]},{INTAKE_WARD[2]},{INTAKE_WARD[3]}}};
-    public static final int[] INTAKE_CORRIDOR = {{{INTAKE_CORRIDOR[0]},{INTAKE_CORRIDOR[1]},{INTAKE_CORRIDOR[2]},{INTAKE_CORRIDOR[3]}}};
-    public static final int[] STARTER = {{{STARTER[0]},{STARTER[1]},{STARTER[2]},{STARTER[3]}}};
+    /** Underground mine level: the ore band, and the rim walkway above it. */
+    public static final int MINE_ORE_BOTTOM = {layout["mine_ore_bottom"]};
+    public static final int MINE_ORE_TOP = {layout["mine_ore_top"]};
+    public static final int MINE_RIM_Y = {layout["mine_rim_y"]};
 
-    public static class Special {{
-        public final String name, wall;
-        public final int[] ward, room;
-        public Special(String name, String wall, int[] ward, int[] room) {{
-            this.name = name; this.wall = wall; this.ward = ward; this.room = room;
-        }}
-    }}
-    public static final Special[] SPECIALS = {{
-{specials_block}
+    /** One gate in the hub wall. kind is "mine", "room" or "intake". */
+    public record Gate(String name, String wall, int centre, String kind, int[] corridor, int[] ward) {{ }}
+
+    public static final Gate[] GATES = {{
+{chr(10).join(gate_lines)}
     }};
 
-    public static Special special(String name) {{
-        for (Special s : SPECIALS) if (s.name.equals(name)) return s;
-        throw new IllegalArgumentException(name);
+    /** A gate whose ward opens into a room at hub level, rather than onto a lift. */
+    public record Room(String name, String wall, int[] ward, int[] room) {{ }}
+
+    public static final Room[] ROOMS = {{
+{chr(10).join(room_lines)}
+    }};
+
+    /** The outdoor grounds, clustered around one shared green beyond the fishing lobby. */
+    public record Ground(String name, int[] area, int[] link) {{ }}
+
+    public static final int[] GREEN = {arr(regions["room_GREEN"])};
+
+    public static final Ground[] GROUNDS = {{
+{chr(10).join(grounds_lines)}
+    }};
+
+    /** Arrival: the starter yard and the walk from it to the intake gate. */
+    public static final int[] STARTER = {arr(layout["starter"])};
+    public static final int[] STARTER_LINK = {arr(regions["corridor_STARTERLINK"])};
+    public static final int INTAKE_CENTRE = {int(round(gates["INTAKE"]["centre"]))};
+
+    public static Gate gate(String name) {{
+        for (Gate g : GATES) if (g.name().equals(name)) return g;
+        throw new IllegalArgumentException("no gate: " + name);
+    }}
+
+    public static Room room(String name) {{
+        for (Room r : ROOMS) if (r.name().equals(name)) return r;
+        throw new IllegalArgumentException("no room: " + name);
+    }}
+
+    public static Ground ground(String name) {{
+        for (Ground g : GROUNDS) if (g.name().equals(name)) return g;
+        throw new IllegalArgumentException("no ground: " + name);
     }}
 }}
 """
 
-with open(RANK_DATA_PATH, "w") as f:
-    f.write(RANK_MINE_DATA_JAVA)
-with open(MAP_LAYOUT_PATH, "w") as f:
-    f.write(MAP_LAYOUT_JAVA)
+    # ------------------------------------------------------------ RankMineData
 
-print(f"\nWrote {RANK_DATA_PATH}")
-print(f"Wrote {MAP_LAYOUT_PATH}")
+    def def_line(rank):
+        e = econ[rank]
+        common = (f'"{rank}",{e["cost"]},"{e["next"]}","{e["filler"]}","{e["common"]}",'
+                  f'"{e["rare"]}",{e["fillerPrice"]},{e["commonPrice"]},{e["rarePrice"]}')
+        if rank == "FREE":
+            return (f'        RANKS.put("FREE", new Def({common},"W",0,'
+                    f'null,null,null,0,0));')
+        lift = lifts[rank]
+        g = gates[rank]
+        lx, ly, lz = lift["landing"]
+        return (f'        RANKS.put("{rank}", new Def({common},'
+                f'"{g["wall"]}",{int(round(g["centre"]))},'
+                f'new int[]{arr(lift["pit"])},new int[]{arr(lift["rim"])},'
+                f'new int[]{{{int(round(lx))},{int(round(ly))},{int(round(lz))}}},'
+                f'{lift["ore_bottom"]},{lift["ore_top"]}));')
+
+    rank_lines = "\n".join(def_line(r) for r in RANKS + ["FREE"])
+
+    rank_data = f"""{GENERATED_BANNER}
+package com.lukeprison.prison;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Every rank: its economics, and the geometry of its mine.
+ *
+ * A mine is an open PIT on the underground mine level — a bedrock box with an
+ * ore band in it and open air above, so players drop in and mine downward
+ * rather than tunnelling into a solid cube. {{@code rim}} is the walkway that
+ * wraps the pit, and {{@code landing}} is where that mine's cage lift puts you
+ * down: always on the rim, never over the hole.
+ */
+public class RankMineData {{
+
+    public static class Def {{
+        public final String rank, next, filler, common, rare, wall;
+        public final int cost, gateCentre, oreBottom, oreTop;
+        public final double fillerPrice, commonPrice, rarePrice;
+        /** {{x1,z1,x2,z2}} of the ore area. */
+        public final int[] pit;
+        /** {{x1,z1,x2,z2}} of the walkway wrapping the pit. */
+        public final int[] rim;
+        /** {{x,y,z}} the cage lift sets players down on. */
+        public final int[] landing;
+
+        public Def(String rank, int cost, String next, String filler, String common, String rare,
+                   double fillerPrice, double commonPrice, double rarePrice,
+                   String wall, int gateCentre,
+                   int[] pit, int[] rim, int[] landing, int oreBottom, int oreTop) {{
+            this.rank = rank; this.cost = cost; this.next = next;
+            this.filler = filler; this.common = common; this.rare = rare;
+            this.fillerPrice = fillerPrice; this.commonPrice = commonPrice; this.rarePrice = rarePrice;
+            this.wall = wall; this.gateCentre = gateCentre;
+            this.pit = pit; this.rim = rim; this.landing = landing;
+            this.oreBottom = oreBottom; this.oreTop = oreTop;
+        }}
+
+        /** FREE has no mine of its own — it unlocks the open world instead. */
+        public boolean hasMine() {{ return pit != null; }}
+
+        /** The ward this rank's gate opens into, on the hub wall. */
+        public MapLayout.Gate gate() {{ return MapLayout.gate(rank); }}
+    }}
+
+    public static final Map<String, Def> RANKS = new LinkedHashMap<>();
+
+    static {{
+{rank_lines}
+    }}
+}}
+"""
+
+    with open(MAP_LAYOUT_PATH, "w") as f:
+        f.write(map_layout)
+    with open(RANK_DATA_PATH, "w") as f:
+        f.write(rank_data)
+
+    print(f"hub {layout['hub'][2] - layout['hub'][0]}x{layout['hub'][3] - layout['hub'][1]}, "
+          f"{len(gates)} gates, {len(lifts)} mine pits")
+    print(f"wrote {os.path.relpath(MAP_LAYOUT_PATH, REPO)}")
+    print(f"wrote {os.path.relpath(RANK_DATA_PATH, REPO)}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

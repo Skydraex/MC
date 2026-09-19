@@ -93,6 +93,107 @@ public class Architect {
 
     public void set(int x, int y, int z, Material mat) {
         world.getBlockAt(x, y, z).setType(mat, false);
+        if (CONNECTABLE.contains(mat)) connectables.add(new int[]{x, y, z});
+    }
+
+    // ==================================================================================
+    // Connection states
+    //
+    // set() deliberately places with applyPhysics=false: physics on a multi-million-block
+    // build is ruinously slow, and it would also let gravity blocks fall mid-build. The
+    // cost is that connectable blocks — fences, iron bars, glass panes, walls — never get
+    // their connection state computed, so every one of them stays a lone unconnected post.
+    // That is why the animal pens looked like loose stakes and every walkway railing read
+    // as a row of separate bars.
+    //
+    // Rather than paying for physics everywhere, we record just the connectable blocks as
+    // they are placed and compute their connections explicitly at the end of the build.
+    // Deterministic, and it costs one pass over a few thousand blocks instead of physics
+    // on all of them.
+    // ==================================================================================
+
+    private final java.util.List<int[]> connectables = new java.util.ArrayList<>();
+
+    private static final java.util.Set<Material> CONNECTABLE = connectableMaterials();
+
+    private static java.util.Set<Material> connectableMaterials() {
+        java.util.Set<Material> s = java.util.EnumSet.noneOf(Material.class);
+        for (Material m : Material.values()) {
+            if (m.isLegacy() || !m.isBlock()) continue;
+            try {
+                BlockData bd = m.createBlockData();
+                if (bd instanceof org.bukkit.block.data.MultipleFacing
+                        || bd instanceof org.bukkit.block.data.type.Wall) {
+                    s.add(m);
+                }
+            } catch (Exception ignored) {
+                // Not every Material can produce block data; those are simply not connectable.
+            }
+        }
+        return s;
+    }
+
+    private static boolean isFence(Material m) { return m.name().endsWith("_FENCE"); }
+
+    private static boolean isPaneLike(Material m) {
+        return m == Material.IRON_BARS || m.name().endsWith("_PANE");
+    }
+
+    private static boolean isWallBlock(Material m) { return m.name().endsWith("_WALL"); }
+
+    /** Whether {@code self} should visually join to whatever sits in {@code face}. */
+    private boolean joins(Block self, BlockFace face) {
+        Block n = self.getRelative(face);
+        Material nm = n.getType();
+        if (nm.isAir()) return false;
+
+        Material sm = self.getType();
+        // Like joins to like: fence to fence, bars/panes to bars/panes, wall to wall.
+        if (isFence(sm) && (isFence(nm) || nm.name().endsWith("_FENCE_GATE"))) return true;
+        if (isPaneLike(sm) && isPaneLike(nm)) return true;
+        if (isWallBlock(sm) && isWallBlock(nm)) return true;
+
+        // Anything connectable also joins to a solid full block behind it, which is what
+        // makes a railing meet a pillar instead of stopping one block short of it.
+        BlockData nd = n.getBlockData();
+        if (nd instanceof org.bukkit.block.data.MultipleFacing
+                || nd instanceof org.bukkit.block.data.type.Wall) {
+            return false;   // connectable, but a different family — no join
+        }
+        return nm.isOccluding();
+    }
+
+    /**
+     * Computes and applies connection state for every connectable block placed since the
+     * last call. Run once at the end of a build, after all neighbours exist — running it
+     * mid-build would link blocks to neighbours that have not been placed yet.
+     */
+    public int relinkConnectables() {
+        int done = 0;
+        for (int[] p : connectables) {
+            Block b = world.getBlockAt(p[0], p[1], p[2]);
+            BlockData bd = b.getBlockData();
+
+            if (bd instanceof org.bukkit.block.data.type.Wall wall) {
+                for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.EAST,
+                                                   BlockFace.SOUTH, BlockFace.WEST}) {
+                    wall.setHeight(f, joins(b, f)
+                            ? org.bukkit.block.data.type.Wall.Height.LOW
+                            : org.bukkit.block.data.type.Wall.Height.NONE);
+                }
+                wall.setUp(true);
+                b.setBlockData(wall, false);
+                done++;
+            } else if (bd instanceof org.bukkit.block.data.MultipleFacing mf) {
+                for (BlockFace f : mf.getAllowedFaces()) {
+                    mf.setFace(f, joins(b, f));
+                }
+                b.setBlockData(mf, false);
+                done++;
+            }
+        }
+        connectables.clear();
+        return done;
     }
 
     /** Fills a solid box with palette noise. */

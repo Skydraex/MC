@@ -127,6 +127,10 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(chatFormat, this);
         getServer().getPluginManager().registerEvents(cellManager, this);
         getServer().getPluginManager().registerEvents(shopGui, this);
+        // The mine cages: the lift between each ward and its pit underground.
+        getServer().getPluginManager().registerEvents(new LiftListener(this), this);
+        // Replaces vanilla /help, which spans 21 pages of other plugins' commands.
+        getServer().getPluginManager().registerEvents(new HelpGUI(), this);
         getServer().getPluginManager().registerEvents(this, this);
 
         // A moment after the world is ready: sync sign text to clients, then spawn NPCs.

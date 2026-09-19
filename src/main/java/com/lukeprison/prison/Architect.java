@@ -285,6 +285,162 @@ public class Architect {
         }
     }
 
+    /**
+     * A building envelope with real depth, rather than a flat plane of blocks.
+     *
+     * This is the difference between a wall and a facade, and it is most of what separates
+     * a professional-looking build from a competent one. Nothing here is ornament — it is
+     * all shadow:
+     *
+     *   plinth        two heavier courses at the base, PROJECTING one block, so the
+     *                 building sits on something instead of starting at the floor
+     *   pilasters     vertical piers on a fixed module, projecting one block, so the
+     *                 elevation has a rhythm and casts vertical shadow lines
+     *   string course a projecting band partway up, which breaks the height into two
+     *                 storeys and stops a tall wall reading as one slab
+     *   window bays   recessed one block between the pilasters, so glass sits in a
+     *                 shadowed reveal rather than flush with the wall
+     *   cornice       two projecting courses at the top, underlined with inverted stairs
+     *
+     * The projecting courses are what matter. A flat wall in Minecraft is lit evenly and
+     * reads as a texture; a wall with 1-block steps in it catches light differently on
+     * every face and reads as masonry.
+     */
+    public void facade(int x1, int z1, int x2, int z2, int y, int height,
+                       Palette panel, Material pilaster, Material plinth,
+                       Material trim, Material stairMat, Material window, int module) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        int band = Math.max(4, height / 2);          // where the string course lands
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                if (x != minX && x != maxX && z != minZ && z != maxZ) continue;
+
+                int nx = (x == minX) ? -1 : (x == maxX) ? 1 : 0;
+                int nz = (z == minZ) ? -1 : (z == maxZ) ? 1 : 0;
+
+                boolean corner = (x == minX || x == maxX) && (z == minZ || z == maxZ);
+                boolean onModule = ((x - minX) % module == 0) || ((z - minZ) % module == 0);
+                boolean isPier = corner || onModule;
+
+                for (int dy = 0; dy < height; dy++) {
+                    Material mat;
+                    if (dy <= 1) {
+                        mat = plinth;
+                    } else if (isPier) {
+                        mat = pilaster;
+                    } else if (dy == band || dy >= height - 2) {
+                        mat = trim;
+                    } else {
+                        mat = pick(panel);
+                    }
+                    set(x, y + dy, z, mat);
+                }
+
+                // --- everything below projects OUT of the wall plane ---
+                if (nx == 0 && nz == 0) continue;
+
+                for (int dy = 0; dy <= 1; dy++) {                 // plinth
+                    set(x + nx, y + dy, z + nz, plinth);
+                }
+                if (isPier) {                                     // pier, full height
+                    for (int dy = 2; dy < height - 1; dy++) {
+                        set(x + nx, y + dy, z + nz, pilaster);
+                    }
+                    set(x + nx, y + height - 1, z + nz, trim);    // pier cap
+                } else {
+                    // String course, as an inverted stair so it has an underside.
+                    placeStair(x + nx, y + band, z + nz, stairMat, faceOf(-nx, -nz), true);
+                    // Window, recessed: the reveal is the point, not the glass.
+                    if (dy(height) && (x + z) % 2 == 0) {
+                        for (int wy = band - 3; wy <= band - 1; wy++) {
+                            if (wy < 3) continue;
+                            set(x, y + wy, z, window);
+                        }
+                    }
+                }
+                // Cornice: two courses, the upper one stepping out further.
+                placeStair(x + nx, y + height - 2, z + nz, stairMat, faceOf(-nx, -nz), true);
+                set(x + nx, y + height - 1, z + nz, trim);
+            }
+        }
+    }
+
+    private boolean dy(int height) { return height >= 8; }
+
+    /** The BlockFace pointing along a unit offset. */
+    private BlockFace faceOf(int dx, int dz) {
+        if (dx > 0) return BlockFace.EAST;
+        if (dx < 0) return BlockFace.WEST;
+        return dz > 0 ? BlockFace.SOUTH : BlockFace.NORTH;
+    }
+
+    /**
+     * A pitched roof rather than a flat lid.
+     *
+     * Runs the ridge along the building's longer axis and steps in one block per course,
+     * which is what stops every building in the prison reading as a rectangular box with a
+     * slab on top.
+     */
+    public void pitchedRoof(int x1, int z1, int x2, int z2, int y,
+                            Material roof, Material stairMat) {
+        int minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+        int minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+        boolean ridgeAlongX = (maxX - minX) >= (maxZ - minZ);
+        int span = ridgeAlongX ? (maxZ - minZ) : (maxX - minX);
+
+        for (int step = 0; step <= span / 2; step++) {
+            int ry = y + step;
+            int a1 = (ridgeAlongX ? minZ : minX) + step;
+            int a2 = (ridgeAlongX ? maxZ : maxX) - step;
+            if (a1 > a2) break;
+
+            int b1 = ridgeAlongX ? minX : minZ;
+            int b2 = ridgeAlongX ? maxX : maxZ;
+            for (int b = b1; b <= b2; b++) {
+                int lowX = ridgeAlongX ? b : a1, lowZ = ridgeAlongX ? a1 : b;
+                int highX = ridgeAlongX ? b : a2, highZ = ridgeAlongX ? a2 : b;
+
+                placeStair(lowX, ry, lowZ, stairMat,
+                        ridgeAlongX ? BlockFace.SOUTH : BlockFace.EAST, false);
+                placeStair(highX, ry, highZ, stairMat,
+                        ridgeAlongX ? BlockFace.NORTH : BlockFace.WEST, false);
+
+                // Close the gap under the slope so there is no hole into the room.
+                for (int inner = a1 + 1; inner <= a2 - 1; inner++) {
+                    int ix = ridgeAlongX ? b : inner, iz = ridgeAlongX ? inner : b;
+                    if (step == span / 2) set(ix, ry, iz, roof);
+                }
+            }
+        }
+    }
+
+    /**
+     * The skirt where a building meets the ground.
+     *
+     * Professional builds never let a wall hit the floor at a hard line — there is always a
+     * step, a kerb or planting absorbing the join. Without it the building looks pasted onto
+     * the terrain, which is exactly how every quadrant in this hub looked.
+     */
+    public void groundSkirt(int x1, int z1, int x2, int z2, int y,
+                            Material kerb, Material step, Material planter, Material plant) {
+        int minX = Math.min(x1, x2) - 2, maxX = Math.max(x1, x2) + 2;
+        int minZ = Math.min(z1, z2) - 2, maxZ = Math.max(z1, z2) + 2;
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                int ring = Math.min(Math.min(x - minX, maxX - x), Math.min(z - minZ, maxZ - z));
+                if (ring > 1) continue;
+                set(x, y, z, ring == 0 ? kerb : step);
+                if (ring == 0 && Math.floorMod(x * 7 + z * 13, 11) == 0) {
+                    set(x, y + 1, z, planter);
+                    set(x, y + 2, z, plant);
+                }
+            }
+        }
+    }
+
     /** Places a stair block facing a direction, optionally upside down (for cornices). */
     public void placeStair(int x, int y, int z, Material stairMat, BlockFace facing, boolean upsideDown) {
         Block b = world.getBlockAt(x, y, z);

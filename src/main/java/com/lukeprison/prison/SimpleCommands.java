@@ -53,8 +53,6 @@ public class SimpleCommands {
         }
     }
 
-    }
-
     public static class AutoSell implements CommandExecutor {
         private final PrisonPlugin plugin;
         public AutoSell(PrisonPlugin plugin) { this.plugin = plugin; }

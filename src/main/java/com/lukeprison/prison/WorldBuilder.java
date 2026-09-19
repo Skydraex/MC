@@ -351,26 +351,69 @@ public class WorldBuilder {
      */
     private void buildPerimeter() {
         int[] c = MapLayout.COMPOUND;
-        for (int x = c[0]; x <= c[2]; x++) {
-            perimeterPost(x, c[1]);
-            perimeterPost(x, c[3]);
+        // Three courses deep, laid inward, so the top is a rampart wide enough to walk.
+        for (int d = 0; d < PERIMETER_THICK; d++) {
+            for (int x = c[0] + d; x <= c[2] - d; x++) {
+                perimeterPost(x, c[1] + d);
+                perimeterPost(x, c[3] - d);
+            }
+            for (int z = c[1] + d; z <= c[3] - d; z++) {
+                perimeterPost(c[0] + d, z);
+                perimeterPost(c[2] - d, z);
+            }
         }
-        for (int z = c[1]; z <= c[3]; z++) {
-            perimeterPost(c[0], z);
-            perimeterPost(c[2], z);
+        // Only the outermost course carries merlons and the barrier above them; the inner
+        // two are the walkway, so staff and players can stand on the wall and look out.
+        for (int x = c[0] + 1; x <= c[2] - 1; x++) {
+            clearRampart(x, c[1] + 1);
+            clearRampart(x, c[3] - 1);
+            clearRampart(x, c[1] + 2);
+            clearRampart(x, c[3] - 2);
+        }
+        for (int z = c[1] + 1; z <= c[3] - 1; z++) {
+            clearRampart(c[0] + 1, z);
+            clearRampart(c[2] - 1, z);
+            clearRampart(c[0] + 2, z);
+            clearRampart(c[2] - 2, z);
         }
         for (int[] corner : new int[][]{{c[0], c[1]}, {c[2], c[1]}, {c[0], c[3]}, {c[2], c[3]}}) {
             buildGuardTower(corner[0] + (corner[0] < 0 ? 3 : -3), corner[1] + (corner[1] < 0 ? 3 : -3));
         }
     }
 
+    /**
+     * One slice of the curtain wall.
+     *
+     * The first version was a single course of wall blocks with iron bars on top - a fence
+     * line, not architecture. This is a real rampart: three blocks thick, with a walkway
+     * along the top you can actually stand on, crenellations, and piers on a rhythm. The
+     * barrier course sits above the merlons so the countryside is still in view.
+     */
+    private static final int PERIMETER_THICK = 3;
+
+    /** Strips the merlons and barrier off an inner course, leaving walkable rampart. */
+    private void clearRampart(int x, int z) {
+        for (int dy = 7; dy <= 12; dy++) arch.set(x, Y + dy, z, Material.AIR);
+    }
+
     private void perimeterPost(int x, int z) {
-        arch.set(x, Y, z, Material.POLISHED_ANDESITE);
-        arch.set(x, Y + 1, z, Material.POLISHED_DEEPSLATE_WALL);
-        arch.set(x, Y + 2, z, Material.IRON_BARS);
-        arch.set(x, Y + 3, z, Material.IRON_BARS);
-        // Invisible above the fence, so the fields and trees stay in view.
-        for (int dy = 4; dy <= 8; dy++) arch.set(x, Y + dy, z, Material.BARRIER);
+        boolean pier = Math.floorMod(x + z, 9) == 0;
+        int top = Y + 7;
+
+        for (int dy = 0; dy <= 5; dy++) {
+            Material mat = (dy == 0) ? Material.POLISHED_DEEPSLATE
+                    : pier ? Material.POLISHED_DEEPSLATE_BRICKS
+                    : (dy == 5 ? Material.DEEPSLATE_TILES : arch.pick(Architect.PRISON_STONE));
+            arch.set(x, Y + dy, z, mat);
+        }
+        // Rampart walkway, and the merlons above it.
+        arch.set(x, Y + 6, z, Material.POLISHED_DEEPSLATE);
+        if (Math.floorMod(x + z, 2) == 0) arch.set(x, top, z, Material.POLISHED_DEEPSLATE_WALL);
+        if (pier) {
+            arch.set(x, top, z, Material.POLISHED_DEEPSLATE_BRICKS);
+            arch.set(x, top + 1, z, Material.LANTERN);
+        }
+        for (int dy = 8; dy <= 12; dy++) arch.set(x, Y + dy, z, Material.BARRIER);
     }
 
     // ==================================================================================
@@ -636,14 +679,31 @@ public class WorldBuilder {
                 Math.max(sz * BUILDING_IN, sz * BUILDING_OUT)};
     }
 
+    /**
+     * The shell every hub building shares.
+     *
+     * It used to be detailedWall plus a flat roof slab: a single plane of blocks with the
+     * pillars picked out in a different material, and a lid on top. Flat walls in Minecraft
+     * are lit evenly and read as texture rather than masonry, which is exactly why the hub
+     * looked blank however many materials went into it.
+     *
+     * It is a facade now - projecting plinth, piers on a module, a string course, recessed
+     * window reveals and a cornice - under a pitched roof, standing on a kerbed and planted
+     * skirt so it does not meet the floor at a hard line.
+     */
     private void quadrantShell(int[] r, int height, Architect.Palette wall, Material floor, Material band) {
+        arch.groundSkirt(r[0], r[1], r[2], r[3], Y,
+                Material.POLISHED_ANDESITE, Material.SMOOTH_STONE,
+                Material.FLOWER_POT, Material.AZALEA);
         arch.fillFlat(r[0], r[1], r[2], r[3], Y, new Architect.Palette(floor, new Material[]{floor}, new int[]{0}));
         arch.floorBand(r[0], r[1], r[2], r[3], Y, band);
         arch.clear(r[0] + 1, Y + 1, r[1] + 1, r[2] - 1, Y + height, r[3] - 1);
-        arch.detailedWall(r[0], Y + 1, r[1], r[2], r[3], height, wall,
-                Material.POLISHED_DEEPSLATE, Material.DEEPSLATE_TILES, 6);
+        arch.facade(r[0], r[1], r[2], r[3], Y + 1, height, wall,
+                Material.POLISHED_DEEPSLATE, Material.DEEPSLATE_BRICKS,
+                Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS,
+                Material.TINTED_GLASS, 6);
         arch.fillFlat(r[0], r[1], r[2], r[3], Y + height + 1, Architect.PRISON_STONE);
-        arch.roofWithOverhang(r[0], r[1], r[2], r[3], Y + height + 1,
+        arch.pitchedRoof(r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, Y + height + 2,
                 Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS);
         arch.recessedLightPanels(r[0] + 1, r[1] + 1, r[2] - 1, r[3] - 1, Y + height, 9);
 

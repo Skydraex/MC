@@ -2,6 +2,7 @@ package com.lukeprison.prison;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -28,17 +29,45 @@ public class PvpZoneManager implements Listener {
     public static class Zone {
         public final String name;
         public final int x1, y1, z1, x2, y2, z2;
+        /**
+         * When true this zone only applies where the player is actually STANDING ON red wool,
+         * not everywhere inside its bounding box.
+         *
+         * The hub is one big rectangle containing walkways, the plaza and four buildings, all
+         * of which must stay safe. Marking the whole rectangle as PvP — which is what this
+         * class used to do — turned the entire hub hostile the moment you walked in. The red
+         * floor is the contract with the player, so the floor is what decides.
+         */
+        public final boolean redFloorOnly;
 
         public Zone(String name, int x1, int y1, int z1, int x2, int y2, int z2) {
+            this(name, x1, y1, z1, x2, y2, z2, false);
+        }
+
+        public Zone(String name, int x1, int y1, int z1, int x2, int y2, int z2, boolean redFloorOnly) {
             this.name = name;
             this.x1 = Math.min(x1, x2); this.x2 = Math.max(x1, x2);
             this.y1 = Math.min(y1, y2); this.y2 = Math.max(y1, y2);
             this.z1 = Math.min(z1, z2); this.z2 = Math.max(z1, z2);
+            this.redFloorOnly = redFloorOnly;
         }
 
         public boolean contains(Location loc) {
             int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
-            return x >= x1 && x <= x2 && y >= y1 && y <= y2 && z >= z1 && z <= z2;
+            if (!(x >= x1 && x <= x2 && y >= y1 && y <= y2 && z >= z1 && z <= z2)) return false;
+            return !redFloorOnly || standingOnRed(loc);
+        }
+
+        /** The block underfoot — checked one and two below, so jumping does not clear PvP. */
+        private static boolean standingOnRed(Location loc) {
+            if (loc.getWorld() == null) return false;
+            for (int dy = 1; dy <= 2; dy++) {
+                Material m = loc.getWorld().getBlockAt(
+                        loc.getBlockX(), loc.getBlockY() - dy, loc.getBlockZ()).getType();
+                if (m == Material.RED_WOOL || m == Material.RED_CONCRETE) return true;
+                if (!m.isAir()) return false;   // standing on something solid that is not red
+            }
+            return false;
         }
     }
 

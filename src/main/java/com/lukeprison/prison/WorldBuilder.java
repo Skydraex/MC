@@ -164,7 +164,6 @@ public class WorldBuilder {
         buildStarterYard();
         buildGrounds();
 
-        buildMineLevel();
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (d.hasMine()) buildMinePit(d);
         }
@@ -389,6 +388,17 @@ public class WorldBuilder {
         arch.roofWithOverhang(r[0], r[1], r[2], r[3], Y + height + 1,
                 Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICK_STAIRS);
         arch.recessedLightPanels(r[0] + 1, r[1] + 1, r[2] - 1, r[3] - 1, Y + height, 9);
+
+        // Wall lanterns at head height as well. Recessed ceiling panels alone leave a tall room
+        // gloomy at floor level — the cell wing in particular was pitch black to walk through.
+        for (int x = r[0] + 4; x <= r[2] - 4; x += 6) {
+            arch.set(x, Y + 4, r[1] + 1, Material.LANTERN);
+            arch.set(x, Y + 4, r[3] - 1, Material.LANTERN);
+        }
+        for (int z = r[1] + 4; z <= r[3] - 4; z += 6) {
+            arch.set(r[0] + 1, Y + 4, z, Material.LANTERN);
+            arch.set(r[2] - 1, Y + 4, z, Material.LANTERN);
+        }
     }
 
     /**
@@ -454,17 +464,28 @@ public class WorldBuilder {
         for (int tier = 0; tier < CELL_TIERS; tier++) {
             int y = Y + tier * CELL_TIER_H;
             int size = cellSizeForTier(tier);
+            int usableW = (r[2] - r[0]) - 4;
+            int stairColX = r[0] + 2 + ((Math.max(1, usableW / size)) / 2) * size;
             if (tier > 0) {
                 for (int x = r[0] + 1; x <= r[2] - 1; x++) {
-                    for (int z = r[1] + 1; z <= r[3] - 1; z++) arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
+                    for (int z = r[1] + 1; z <= r[3] - 1; z++) {
+                        // Leave the stairwell open. The previous version filled the whole floor,
+                        // re-sealing the hole the tier below had just punched for its staircase —
+                        // which is why the stairs went nowhere.
+                        boolean stairwell = x >= stairColX - 2 && x <= stairColX + 5
+                                && z >= r[1] + 2 && z <= r[1] + 3 + CELL_TIER_H + 1;
+                        if (stairwell) continue;
+                        arch.set(x, y, z, Material.POLISHED_DEEPSLATE);
+                    }
                 }
             }
             for (int[] s : cellSpots(r, size)) buildCell(s[0], y, s[1], size, n++);
 
-            int usable = (r[2] - r[0]) - 4;
-            int perRow = Math.max(1, usable / size);
-            int stairX = r[0] + 2 + (perRow / 2) * size;
-            if (tier < CELL_TIERS - 1) buildCellStair(stairX, y, r[1] + 3);
+            if (tier < CELL_TIERS - 1) buildCellStair(stairColX, y, r[1] + 3);
+            // Corridor lighting: without it the upper tiers are pitch dark.
+            for (int x = r[0] + 4; x <= r[2] - 4; x += 7) {
+                arch.set(x, y + CELL_TIER_H - 2, r[1] + 2 + size + 2, Material.SEA_LANTERN);
+            }
         }
         signOn(door[0] + 1, Y + 2, door[1] + 3, BlockFace.SOUTH,
                 "§8§lCELL BLOCK", (n - 1) + " cells", "Higher tiers", "= bigger cells");
@@ -662,30 +683,65 @@ public class WorldBuilder {
      * into the hub — nothing is ever placed in front of the letters. (The old starter banner
      * was written into a wall and then backed on BOTH sides, which entombed it.)
      */
+    /**
+     * Labels a gate on the HUB-facing side, so from the plaza you can read where each of the
+     * thirty gates goes.
+     *
+     * Two hard constraints learned the hard way:
+     *  - Gates sit 12 blocks apart and BlockFont needs 6 blocks per character, so TWO characters
+     *    is the absolute maximum before neighbouring labels collide. "MINE A" was never going to
+     *    fit; the old code silently truncated room names to nonsense like "CRA".
+     *  - BlockFont treats y as the glyph's TOP row and draws DOWNWARD. Every backing panel here
+     *    used to be built upward from that point, leaving the bottom four rows of each label with
+     *    no wall behind them — which is why letters looked doubled and seemed to float.
+     *
+     * So: a big rank letter for mines, and a hologram over every gate carrying the full name.
+     */
     private void buildGateNameplate(MapLayout.Gate g) {
-        String label = g.kind().equals("mine") ? "MINE " + g.name() : g.name();
-        int available = MapLayout.GATE_W + 14;
-        if (BlockFont.width(label) > available) label = g.name();
-        if (BlockFont.width(label) > available) label = label.substring(0, Math.max(1, available / 6));
-        int panelW = BlockFont.width(label);
-
+        boolean alongZ = !isNS(g.wall());
         int hubEdge = wallCoord(g.wall(), HUB, true);
         int inward = -outwardSign(g.wall());
-        boolean alongZ = !isNS(g.wall());
-        int baseY = Y + 9;
+        int topY = Y + 15;                       // glyph top row; glyphs run down to topY-6
 
-        for (int a = -panelW / 2 - 2; a <= panelW / 2 + 2; a++) {
-            for (int dy = -2; dy <= 9; dy++) {
-                int px = alongZ ? hubEdge : g.centre() + a;
-                int pz = alongZ ? g.centre() + a : hubEdge;
-                arch.set(px, baseY + dy, pz, arch.pick(Architect.PRISON_STONE));
+        if (g.kind().equals("mine")) {
+            String label = g.name();             // one character, always fits the pitch
+            int panelW = BlockFont.width(label);
+
+            for (int a = -panelW / 2 - 2; a <= panelW / 2 + 2; a++) {
+                for (int y = topY - 8; y <= topY + 2; y++) {
+                    int px = alongZ ? hubEdge : g.centre() + a;
+                    int pz = alongZ ? g.centre() + a : hubEdge;
+                    arch.set(px, y, pz, arch.pick(Architect.PRISON_STONE));
+                }
             }
+            // Start coordinate depends on which way the axis advances: POS_* runs forward from
+            // the left edge, NEG_* runs backward from the right edge.
+            int startAlong = switch (g.wall()) {
+                case "N", "W" -> g.centre() - panelW / 2;
+                default -> g.centre() + panelW / 2;     // S and E advance negatively
+            };
+            int gx = alongZ ? hubEdge + inward : startAlong;
+            int gz = alongZ ? startAlong : hubEdge + inward;
+            BlockFont.write(world, label, gx, topY, gz, nameplateAxis(g.wall()), Material.LIGHT_BLUE_CONCRETE);
         }
-        int gx = alongZ ? hubEdge + inward : g.centre() - panelW / 2;
-        int gz = alongZ ? g.centre() - panelW / 2 : hubEdge + inward;
-        if (g.wall().equals("S")) gz = g.centre() + panelW / 2;
-        if (g.wall().equals("W")) gx = hubEdge + inward;
-        BlockFont.write(world, label, gx, baseY, gz, nameplateAxis(g.wall()), Material.LIGHT_BLUE_CONCRETE);
+
+        // Full name in floating text just inside the gate — readable from anywhere in the hub,
+        // and it always turns to face you, which no block-letter label can do.
+        String full = switch (g.kind()) {
+            case "mine" -> "§b§lMINE " + g.name();
+            case "intake" -> "§8§lINTAKE";
+            default -> "§6§l" + g.name();
+        };
+        String sub = switch (g.name()) {
+            case "FISHING" -> "§7Ponds, logging and farm";
+            case "CRATES" -> "§7Open crates with keys";
+            case "YARD" -> "§7PvP arena";
+            case "INTAKE" -> "§7The way you came in";
+            default -> "§7Cage lift to the pit";
+        };
+        int hx = alongZ ? hubEdge + inward * 3 : g.centre();
+        int hz = alongZ ? g.centre() : hubEdge + inward * 3;
+        hologramAt(hx + 0.5, Y + 6.0, hz + 0.5, full, sub);
 
         for (int side : new int[]{-1, 1}) {
             int a = side * (MapLayout.GATE_W / 2 + 2);
@@ -1019,17 +1075,21 @@ public class WorldBuilder {
         int bannerX = r[2] - 8;
         int midZ = (r[1] + r[3]) / 2;
         int nameW = BlockFont.width("SKY PRISON");
+        // Glyph top row is Y+15 and BlockFont draws DOWNWARD, so the letters occupy Y+9..Y+15.
+        // The panel has to cover that whole span: backing only the top of it (as the first
+        // version did) left the lower rows see-through, so the two mirrored faces showed
+        // through each other and the text looked doubled.
         for (int z = midZ - nameW / 2 - 2; z <= midZ + nameW / 2 + 2; z++) {
-            for (int dy = 6; dy <= 18; dy++) arch.set(bannerX, Y + dy, z, arch.pick(Architect.PRISON_STONE));
-            arch.set(bannerX, Y + 5, z, Material.POLISHED_BLACKSTONE);
-            arch.set(bannerX, Y + 19, z, Material.POLISHED_BLACKSTONE);
+            for (int dy = 7; dy <= 17; dy++) arch.set(bannerX, Y + dy, z, arch.pick(Architect.PRISON_STONE));
+            arch.set(bannerX, Y + 6, z, Material.POLISHED_BLACKSTONE);
+            arch.set(bannerX, Y + 18, z, Material.POLISHED_BLACKSTONE);
             for (int dy = 1; dy <= 4; dy++) {
                 if (Math.floorMod(z, 6) == 0) arch.set(bannerX, Y + dy, z, Material.POLISHED_BLACKSTONE_WALL);
             }
         }
-        BlockFont.write(world, "SKY PRISON", bannerX - 1, Y + 9, midZ - nameW / 2,
+        BlockFont.write(world, "SKY PRISON", bannerX - 1, Y + 15, midZ - nameW / 2,
                 BlockFont.Axis.POS_Z, Material.LIGHT_BLUE_CONCRETE);
-        BlockFont.write(world, "SKY PRISON", bannerX + 1, Y + 9, midZ + nameW / 2,
+        BlockFont.write(world, "SKY PRISON", bannerX + 1, Y + 15, midZ + nameW / 2,
                 BlockFont.Axis.NEG_Z, Material.LIGHT_BLUE_CONCRETE);
 
         buildPrisonBus(r[0] + 6, Y + 1, MapLayout.INTAKE_CENTRE);
@@ -1103,104 +1163,160 @@ public class WorldBuilder {
     // Mine level
     // ==================================================================================
 
-    /**
-     * The rock mass the pits are cut into. Without it the mine level would be 26 boxes hanging
-     * in void, and you would see straight out of the world from every rim.
-     */
-    private void buildMineLevel() {
-        int minX = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-        for (RankMineData.Def d : RankMineData.RANKS.values()) {
-            if (!d.hasMine()) continue;
-            minX = Math.min(minX, d.rim[0]); minZ = Math.min(minZ, d.rim[1]);
-            maxX = Math.max(maxX, d.rim[2]); maxZ = Math.max(maxZ, d.rim[3]);
-        }
-        int pad = 16;
-        for (int x = minX - pad; x <= maxX + pad; x++) {
-            for (int z = minZ - pad; z <= maxZ + pad; z++) {
-                arch.set(x, ORE_BOTTOM - 4, z, Material.BEDROCK);        // hidden floor backstop
-                for (int y = ORE_BOTTOM - 3; y <= RIM_Y; y++) arch.set(x, y, z, Material.DEEPSLATE);
-                for (int y = RIM_Y + 1; y <= PIT_CEILING; y++) arch.set(x, y, z, Material.DEEPSLATE);
-                arch.set(x, PIT_CEILING + 1, z, Material.BEDROCK);       // hidden ceiling backstop
-            }
-        }
+    /** Themed dressing so mines do not all read the same the whole way from A to Z. */
+    private record MineTheme(Material pillar, Material trim, Material band, Material floor) { }
+
+    private static final MineTheme[] MINE_THEMES = {
+            new MineTheme(Material.COBBLESTONE, Material.STONE_BRICKS, Material.ANDESITE, Material.SMOOTH_STONE),
+            new MineTheme(Material.POLISHED_ANDESITE, Material.SMOOTH_STONE, Material.GRAY_TERRACOTTA, Material.POLISHED_ANDESITE),
+            new MineTheme(Material.POLISHED_BASALT, Material.SMOOTH_QUARTZ, Material.CYAN_TERRACOTTA, Material.SMOOTH_QUARTZ),
+            new MineTheme(Material.CUT_COPPER, Material.WAXED_CUT_COPPER, Material.ORANGE_TERRACOTTA, Material.CUT_COPPER),
+            new MineTheme(Material.POLISHED_DEEPSLATE, Material.CHISELED_DEEPSLATE, Material.DEEPSLATE_TILES, Material.DEEPSLATE_BRICKS),
+            new MineTheme(Material.BLACKSTONE, Material.POLISHED_BLACKSTONE_BRICKS, Material.GILDED_BLACKSTONE, Material.POLISHED_BLACKSTONE),
+            new MineTheme(Material.AMETHYST_BLOCK, Material.CALCITE, Material.PURPLE_TERRACOTTA, Material.CALCITE),
+    };
+
+    private MineTheme themeFor(String rank) {
+        int idx = RankMineData.RANKS.keySet().stream().toList().indexOf(rank);
+        return MINE_THEMES[Math.max(0, idx / 4) % MINE_THEMES.length];
     }
 
     /**
-     * One mine: an open pit with an ore band, a lit rim walkway, and a cage landing.
+     * One mine: a self-contained underground chamber holding an open ore pit, a lit walkway
+     * around its rim, and the cage landing.
      *
-     * The structural shell is bedrock so nobody can break out of the world, but every face a
-     * player can see is clad in stone — bedrock is a backstop here, never a finish. Mining is
-     * limited to the ore materials by ProtectionListener, so the cladding is safe from pickaxes
-     * regardless of what it is made of.
+     * Built as a ROOM — floor, four walls, ceiling — rather than by carving a hole out of a
+     * solid rock mass. The first version filled the entire mine field solid before excavating,
+     * which came to roughly 9.8 million blocks and would have frozen the server for minutes on
+     * first boot. Surfaces only brings a mine down to tens of thousands.
+     *
+     * Bedrock is still the structural backstop, but it sits one layer behind stone cladding on
+     * every face, and ProtectionListener only permits breaking the mine's own ore materials, so
+     * there is no way to reach it. Nobody should ever see bedrock down here.
      */
     private void buildMinePit(RankMineData.Def d) {
         int[] p = d.pit, rim = d.rim;
+        MineTheme mt = themeFor(d.rank);
 
-        arch.clear(rim[0], RIM_Y + 1, rim[1], rim[2], PIT_CEILING - 1, rim[3]);
-        arch.clear(p[0], d.oreTop + 1, p[1], p[2], RIM_Y, p[3]);
+        int ox1 = rim[0] - 1, oz1 = rim[1] - 1, ox2 = rim[2] + 1, oz2 = rim[3] + 1;
+        int floorY = d.oreBottom - 1;      // the pit's own floor surface
+        int ceilY = PIT_CEILING;
 
-        for (int x = rim[0]; x <= rim[2]; x++) {
-            for (int z = rim[1]; z <= rim[3]; z++) {
+        // --- Chamber walls: clad inside, bedrock backstop outside -------------------
+        for (int x = ox1; x <= ox2; x++) {
+            for (int z = oz1; z <= oz2; z++) {
+                boolean wall = x == ox1 || x == ox2 || z == oz1 || z == oz2;
+                if (!wall) continue;
+                for (int y = floorY - 1; y <= ceilY; y++) {
+                    boolean pillar = Math.floorMod(x - ox1, 8) == 0 || Math.floorMod(z - oz1, 8) == 0;
+                    boolean band = y == RIM_Y + 3 || y == RIM_Y + 4;
+                    Material mat = pillar ? mt.pillar() : band ? mt.band()
+                            : (y == floorY - 1 || y == ceilY) ? mt.trim()
+                            : arch.pick(Architect.WARD_INDUSTRIAL);
+                    arch.set(x, y, z, mat);
+                }
+            }
+        }
+        for (int x = ox1 - 1; x <= ox2 + 1; x++) {
+            for (int z = oz1 - 1; z <= oz2 + 1; z++) {
+                boolean ring = x == ox1 - 1 || x == ox2 + 1 || z == oz1 - 1 || z == oz2 + 1;
+                if (!ring) continue;
+                for (int y = floorY - 2; y <= ceilY + 1; y++) arch.set(x, y, z, Material.BEDROCK);
+            }
+        }
+
+        // --- Ceiling and the apron of solid ground the rim walkway sits on ----------
+        for (int x = ox1; x <= ox2; x++) {
+            for (int z = oz1; z <= oz2; z++) {
+                arch.set(x, ceilY, z, mt.trim());
+                arch.set(x, ceilY + 1, z, Material.BEDROCK);
                 boolean overPit = x >= p[0] && x <= p[2] && z >= p[1] && z <= p[3];
                 if (overPit) continue;
-                arch.set(x, RIM_Y, z, ((x + z) % 7 == 0) ? Material.POLISHED_ANDESITE : Material.SMOOTH_STONE);
-                boolean outerEdge = x == rim[0] || x == rim[2] || z == rim[1] || z == rim[3];
-                if (outerEdge) {
-                    for (int dy = 1; dy <= 4; dy++) arch.set(x, RIM_Y + dy, z, arch.pick(Architect.WARD_INDUSTRIAL));
-                } else if (x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1) {
-                    arch.set(x, RIM_Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);   // guard rail
-                }
-            }
-        }
-        for (int x = p[0] + 4; x <= p[2] - 4; x += 8) {
-            for (int z = p[1] + 4; z <= p[3] - 4; z += 8) {
-                arch.set(x, PIT_CEILING - 1, z, Material.SEA_LANTERN);
-                // Iron bars as the lamp stem: Material.CHAIN does not exist in this Paper
-                // version, and bars link vertically once relinkConnectables() runs.
-                for (int dy = 2; dy <= 3; dy++) arch.set(x, PIT_CEILING - dy, z, Material.IRON_BARS);
+                for (int y = floorY - 1; y < RIM_Y; y++) arch.set(x, y, z, Material.DEEPSLATE);
+                arch.set(x, floorY - 2, z, Material.BEDROCK);
             }
         }
 
-        // Clad the pit walls from below the ore band up to the rim.
-        for (int x = p[0] - 1; x <= p[2] + 1; x++) {
-            for (int z = p[1] - 1; z <= p[3] + 1; z++) {
-                boolean shell = x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1;
-                if (!shell) continue;
-                for (int y = d.oreBottom - 1; y <= RIM_Y - 1; y++) {
-                    arch.set(x, y, z, arch.pick(Architect.WARD_INDUSTRIAL));
-                }
-            }
-        }
-        // Hidden bedrock backstop one block further out — unbreakable, never visible.
-        for (int x = p[0] - 2; x <= p[2] + 2; x++) {
-            for (int z = p[1] - 2; z <= p[3] + 2; z++) {
-                boolean shell = x == p[0] - 2 || x == p[2] + 2 || z == p[1] - 2 || z == p[3] + 2;
-                if (!shell) continue;
-                for (int y = d.oreBottom - 2; y <= RIM_Y; y++) arch.set(x, y, z, Material.BEDROCK);
-            }
-        }
-        // Pit floor: clad stone over a hidden bedrock backstop.
+        // --- Pit floor: clad stone over a hidden bedrock backstop -------------------
         for (int x = p[0]; x <= p[2]; x++) {
             for (int z = p[1]; z <= p[3]; z++) {
-                arch.set(x, d.oreBottom - 1, z, Material.POLISHED_DEEPSLATE);
-                arch.set(x, d.oreBottom - 2, z, Material.BEDROCK);
+                arch.set(x, floorY, z, mt.floor());
+                arch.set(x, floorY - 1, z, Material.BEDROCK);
+            }
+        }
+        // --- Pit sides, from the floor up to the rim -------------------------------
+        for (int x = p[0] - 1; x <= p[2] + 1; x++) {
+            for (int z = p[1] - 1; z <= p[3] + 1; z++) {
+                boolean side = x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1;
+                if (!side) continue;
+                for (int y = floorY; y <= RIM_Y - 1; y++) arch.set(x, y, z, mt.trim());
             }
         }
 
         fillOre(d);
+        dressRim(d, mt);
+        buildCageLanding(d);
+    }
 
-        // Cage landing: a barred alcove on the rim, over solid floor, never over the hole.
+    /** The walkway around the pit: surface, guard rail, lamp posts and a stair down into the ore. */
+    private void dressRim(RankMineData.Def d, MineTheme mt) {
+        int[] p = d.pit, rim = d.rim;
+        for (int x = rim[0]; x <= rim[2]; x++) {
+            for (int z = rim[1]; z <= rim[3]; z++) {
+                boolean overPit = x >= p[0] && x <= p[2] && z >= p[1] && z <= p[3];
+                if (overPit) continue;
+                arch.set(x, RIM_Y, z, ((x + z) % 7 == 0) ? mt.band() : mt.floor());
+                // Guard rail right on the lip, so nobody walks into the hole by accident.
+                boolean lip = x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1;
+                if (lip) arch.set(x, RIM_Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);
+            }
+        }
+        // Lamp posts at the rim corners and along its length.
+        for (int x = rim[0] + 2; x <= rim[2] - 2; x += 9) {
+            for (int z : new int[]{rim[1] + 2, rim[3] - 2}) minerLamp(x, z);
+        }
+        for (int z = rim[1] + 2; z <= rim[3] - 2; z += 9) {
+            for (int x : new int[]{rim[0] + 2, rim[2] - 2}) minerLamp(x, z);
+        }
+        // Pit lighting from above, on the ceiling, so the ore face is lit but nothing is
+        // embedded in the ore where it would be mined away on the first pass.
+        for (int x = p[0] + 5; x <= p[2] - 5; x += 10) {
+            for (int z = p[1] + 5; z <= p[3] - 5; z += 10) {
+                arch.set(x, PIT_CEILING - 1, z, Material.SEA_LANTERN);
+                arch.set(x, PIT_CEILING - 2, z, Material.IRON_BARS);
+            }
+        }
+        // A stair down into the pit on the side opposite the cage, so you can walk out of the
+        // hole once you have mined down, rather than being stuck in it.
+        int sx = (p[0] + p[2]) / 2;
+        for (int step = 0; step <= RIM_Y - d.oreTop; step++) {
+            for (int w = -1; w <= 1; w++) {
+                arch.set(sx + w, RIM_Y - step, p[3] + 1 - step, mt.trim());
+                for (int dy = 1; dy <= 3; dy++) {
+                    arch.set(sx + w, RIM_Y - step + dy, p[3] + 1 - step, Material.AIR);
+                }
+            }
+        }
+    }
+
+    private void minerLamp(int x, int z) {
+        for (int dy = 1; dy <= 3; dy++) arch.set(x, RIM_Y + dy, z, Material.POLISHED_BLACKSTONE_WALL);
+        arch.set(x, RIM_Y + 4, z, Material.LANTERN);
+    }
+
+    /** The barred alcove the cage lift sets you down in: on the rim, over solid floor. */
+    private void buildCageLanding(RankMineData.Def d) {
         int lx = d.landing[0], lz = d.landing[2];
         for (int dx = -2; dx <= 2; dx++) {
             for (int dz = -2; dz <= 2; dz++) {
                 arch.set(lx + dx, RIM_Y, lz + dz, Material.POLISHED_BLACKSTONE);
                 boolean edge = Math.abs(dx) == 2 || Math.abs(dz) == 2;
-                boolean entrance = dz == 2 && Math.abs(dx) <= 1;
+                boolean doorway = dz == 2 && Math.abs(dx) <= 1;
                 for (int dy = 1; dy <= 4; dy++) {
                     arch.set(lx + dx, RIM_Y + dy, lz + dz,
-                            (edge && !entrance) ? Material.IRON_BARS : Material.AIR);
+                            (edge && !doorway) ? Material.IRON_BARS : Material.AIR);
                 }
+                if (edge) arch.set(lx + dx, RIM_Y + 5, lz + dz, Material.POLISHED_BLACKSTONE);
             }
         }
         arch.set(lx, RIM_Y + 5, lz, Material.SEA_LANTERN);
@@ -1209,7 +1325,7 @@ public class WorldBuilder {
         int[] sp = sellSignSpot(d);
         signOn(sp[0], sp[1], sp[2], BlockFace.SOUTH, "§a[Sell]", "Mine " + d.rank + " ore",
                 "Right-click", "holding ore");
-        hologramAt(lx + 0.5, RIM_Y + 2.8, lz + 0.5, "§b§lMINE " + d.rank,
+        hologramAt(lx + 0.5, RIM_Y + 3.0, lz + 0.5, "§b§lMINE " + d.rank,
                 "§7Stand on the plate to return");
     }
 
@@ -1303,8 +1419,10 @@ public class WorldBuilder {
         pvpZones.add(new PvpZoneManager.Zone("The Yard", yard[0], Y, yard[1], yard[2], Y + 12, yard[3]));
         // The hub's open floor. PvpZoneManager checks the block underfoot, so the red wool IS
         // the zone: walkways, plaza and building floors are grey and therefore safe.
+        // redFloorOnly: the hub rectangle contains walkways, the plaza and four buildings,
+        // all of which stay safe. Only blocks with red wool underfoot are live.
         pvpZones.add(new PvpZoneManager.Zone("Hub Yard",
-                HUB[0] + 1, Y, HUB[1] + 1, HUB[2] - 1, Y + 4, HUB[3] - 1));
+                HUB[0] + 1, Y, HUB[1] + 1, HUB[2] - 1, Y + 6, HUB[3] - 1, true));
     }
 
     private void registerLiftPads() {

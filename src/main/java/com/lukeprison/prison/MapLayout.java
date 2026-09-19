@@ -22,7 +22,7 @@ public class MapLayout {
     public static final int GATE_W = 7;
 
     /** Underground mine level: the ore band, and the rim walkway above it. */
-    public static final int MINE_ORE_BOTTOM = 40;
+    public static final int MINE_ORE_BOTTOM = 56;
     public static final int MINE_ORE_TOP = 68;
     public static final int MINE_RIM_Y = 70;
 

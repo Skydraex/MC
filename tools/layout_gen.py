@@ -83,8 +83,11 @@ assignment = {g: w for w, gates in WALL_GATES.items() for g in gates}
 # Underground mine level
 # ---------------------------------------------------------------------------
 
-MINE_ORE_BOTTOM = 40           # lowest ore layer
-MINE_ORE_TOP = 68              # highest ore layer (29-block ore band)
+# A 13-layer ore band. The previous 29-layer band was both deeper than any
+# prison mine needs between resets and, multiplied across 26 pits, a large part
+# of why the first-boot build was enormous.
+MINE_ORE_BOTTOM = 56           # lowest ore layer
+MINE_ORE_TOP = 68              # highest ore layer
 MINE_RIM_Y = MINE_ORE_TOP + 2  # walkable rim around the pit; the lift lands here
 MINE_GRID_COLS = 6             # 26 mines tile into a 6 x 5 grid
 MINE_GRID_PITCH = MAX_W + 16   # widest mine plus a clear margin on every side

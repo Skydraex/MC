@@ -321,27 +321,50 @@ public class MapAuditor {
         count("bedrock samples", n);
     }
 
-    /** Nowhere players walk is dark enough to be unpleasant or to spawn mobs. */
+    /**
+     * Nowhere players stand is dark enough to spawn mobs.
+     *
+     * Two separate places, because they fail for different reasons and the fix differs.
+     * The first version sampled the whole rim rectangle — which includes the pit in its
+     * middle — and reported everything as "walkway is dark". Every single point it named
+     * was actually over the ore, so the label sent me looking at the wrong thing twice.
+     */
     private void auditLighting() {
-        int n = 0, dark = 0;
+        int n = 0, darkWalk = 0, darkPit = 0;
         for (RankMineData.Def d : RankMineData.RANKS.values()) {
             if (!d.hasMine()) continue;
-            int[] rim = d.rim;
+            int[] rim = d.rim, pit = d.pit;
+
+            // The walkway: the rim band, explicitly NOT the hole in the middle of it.
             for (int x = rim[0]; x <= rim[2]; x += 6) {
                 for (int z = rim[1]; z <= rim[3]; z += 6) {
+                    if (x >= pit[0] && x <= pit[2] && z >= pit[1] && z <= pit[3]) continue;
                     Block b = world.getBlockAt(x, MapLayout.MINE_RIM_Y + 1, z);
                     if (!b.getType().isAir()) continue;
-                    if (b.getLightLevel() < 4) {
-                        if (dark++ < 5) {
-                            fail("light", "mine " + d.rank + " walkway is dark here (level "
-                                    + b.getLightLevel() + ")", x, MapLayout.MINE_RIM_Y + 1, z);
-                        }
+                    if (b.getLightLevel() < 8 && darkWalk++ < 4) {
+                        fail("light", "mine " + d.rank + " WALKWAY is dark (level "
+                                + b.getLightLevel() + ")", x, MapLayout.MINE_RIM_Y + 1, z);
+                    }
+                    n++;
+                }
+            }
+
+            // The ore face: the first air block above the ore, which is where a player
+            // stands to mine and where anything hostile would spawn.
+            for (int x = pit[0] + 2; x <= pit[2] - 2; x += 6) {
+                for (int z = pit[1] + 2; z <= pit[3] - 2; z += 6) {
+                    Block b = world.getBlockAt(x, d.oreTop + 1, z);
+                    if (!b.getType().isAir()) continue;
+                    if (b.getLightLevel() < 8 && darkPit++ < 4) {
+                        fail("light", "mine " + d.rank + " ORE FACE is dark (level "
+                                + b.getLightLevel() + ")", x, d.oreTop + 1, z);
                     }
                     n++;
                 }
             }
         }
-        if (dark >= 5) fail("light", "...and " + (dark - 5) + " more dark spots", 0, 0, 0);
+        if (darkWalk > 4) fail("light", "...and " + (darkWalk - 4) + " more dark walkway tiles", 0, 0, 0);
+        if (darkPit > 4) fail("light", "...and " + (darkPit - 4) + " more dark ore tiles", 0, 0, 0);
         count("light samples", n);
     }
 

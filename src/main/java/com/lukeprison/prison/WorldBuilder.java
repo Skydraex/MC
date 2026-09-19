@@ -2397,15 +2397,29 @@ public class WorldBuilder {
         }
         // Pit lighting from above, on the ceiling, so the ore face is lit but nothing is
         // embedded in the ore where it would be mined away on the first pass.
-        // Hung on stems rather than flush to the ceiling: the cavern roof is thirty blocks
-        // above the rim now instead of fourteen, and light from that height does not reach
-        // the ore face. These drop most of the way down.
+        // Hung down to just above the ORE, not part-way from the ceiling. The roof is thirty
+        // blocks above the rim; a lantern left at roof height, or even halfway down, leaves
+        // the ore face at light 0 — which is both unpleasant to mine and enough for hostile
+        // mobs to spawn on the very surface players work.
+        int lampY = d.oreTop + 4;
         for (int x = p[0] + 4; x <= p[2] - 4; x += 8) {
             for (int z = p[1] + 4; z <= p[3] - 4; z += 8) {
-                for (int dy = 1; dy <= 12; dy++) {
-                    arch.set(x, PIT_CEILING - dy, z, Material.IRON_BARS);
+                for (int y = PIT_CEILING - 1; y > lampY; y--) {
+                    arch.set(x, y, z, Material.IRON_BARS);
                 }
-                arch.set(x, PIT_CEILING - 13, z, Material.SEA_LANTERN);
+                arch.set(x, lampY, z, Material.SEA_LANTERN);
+            }
+        }
+        // And lights set into the pit's own walls, so it stays lit as it is mined out.
+        // Players break ore, not the cladding, so these survive a full dig to the floor.
+        for (int y = d.oreBottom + 2; y <= d.oreTop; y += 5) {
+            for (int x = p[0] - 1; x <= p[2] + 1; x += 7) {
+                arch.set(x, y, p[1] - 1, Material.SEA_LANTERN);
+                arch.set(x, y, p[3] + 1, Material.SEA_LANTERN);
+            }
+            for (int z = p[1] - 1; z <= p[3] + 1; z += 7) {
+                arch.set(p[0] - 1, y, z, Material.SEA_LANTERN);
+                arch.set(p[2] + 1, y, z, Material.SEA_LANTERN);
             }
         }
         // A stair down into the pit on the side opposite the cage, so you can walk out of the

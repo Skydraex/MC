@@ -140,16 +140,28 @@ public class MenuGUI implements Listener {
         // Warps menu: teleport into the clicked mine if unlocked.
         if (!name.contains("Mine ")) return;
         String rank = name.substring(name.indexOf("Mine ") + 5).trim();
+        warpToMine(p, rank);
+        p.closeInventory();
+    }
+
+    /** Shared by the GUI click above and the plain "/mine <rank>" text command — same rule
+     *  either way: a player can only warp to their own rank's mine or anything lower. */
+    public boolean warpToMine(Player p, String rank) {
+        rank = rank.toUpperCase();
+        if (!RankMineData.RANKS.containsKey(rank) || rank.equals("FREE")) {
+            p.sendMessage("§cThere's no mine called \"" + rank + "\".");
+            return false;
+        }
         if (!plugin.ranks().canAccessMine(p, rank)) {
-            p.sendMessage("§cYou haven't unlocked that mine yet.");
-            return;
+            p.sendMessage("§cYou haven't unlocked Mine " + rank + " yet.");
+            return false;
         }
         int[] b = mineBounds.get(rank);
-        if (b == null) return;
+        if (b == null) return false;
         // Drop them just inside the entrance, on the floor.
         Location loc = new Location(plugin.builder().getWorld(), b[0] + 2.5, b[1] + 1, b[2] + 3.5);
         p.teleport(loc);
         p.sendMessage("§aWarped to Mine " + rank + ".");
-        p.closeInventory();
+        return true;
     }
 }

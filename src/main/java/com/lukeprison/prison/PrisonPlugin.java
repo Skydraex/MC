@@ -225,9 +225,10 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         // a mine reset with a full server in it can leave thousands of them lying around.
         new GroundItemCleanup(this).start();
 
-        // Audit on every boot, one tick after everything is wired. It finds sealed doorways,
-        // spawns inside blocks, culled signs and dead commands in under a second - all of
-        // which used to be found by a person walking into them and reporting it.
+        // Audit on every boot, AFTER applySigns has run at tick 40. The first version ran at
+        // tick 20 and reported all 209 signs missing, every single boot, because it was
+        // looking for them a second before they were placed. An audit that cries wolf is
+        // worse than no audit: the two real findings were buried under its noise.
         Bukkit.getScheduler().runTaskLater(this, () -> {
             MapAuditor worldAudit = new MapAuditor(worldBuilder);
             worldAudit.runAll();
@@ -246,7 +247,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
                 }
                 getLogger().warning("Run /padmin audit in game for the same report.");
             }
-        }, 20L);
+        }, 60L);
 
         jailManager.start();
         new ServerAnnouncer(this).start();

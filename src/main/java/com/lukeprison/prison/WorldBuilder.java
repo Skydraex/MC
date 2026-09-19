@@ -1159,7 +1159,13 @@ public class WorldBuilder {
         placeBed(x + 1, y + 1, backZ, doorsNorth ? BlockFace.NORTH : BlockFace.SOUTH);
         arch.set(x + CELL_W - 2, y + 1, backZ, Material.BARREL);
         arch.set(x + CELL_W - 2, y + CELL_TIER_H - 2, backZ, Material.LANTERN);
-        signOn(x + doorAt + 1, y + 2, frontZ, doorsNorth ? BlockFace.NORTH : BlockFace.SOUTH,
+        // The plaque goes on the gallery side of the cell's corner post, NOT in the barred
+        // face. Writing it into the bars put it in a position whose backing block is the
+        // cell's own interior — air — so all 108 of them were unsupported and had to be
+        // rescued by applySigns' fallbacks. It reads from the walkway now, which is where
+        // somebody standing outside deciding whether to claim it is actually standing.
+        int plaqueZ = doorsNorth ? frontZ - 1 : frontZ + 1;
+        signOn(x, y + 2, plaqueZ, doorsNorth ? BlockFace.NORTH : BlockFace.SOUTH,
                 "\u00a77Cell \u00a7f#" + number, CELL_W + "x" + CELL_D,
                 "\u00a7a$" + String.format("%,d", (long) cellPriceForTier(floor)), "/cell claim");
     }
@@ -2188,6 +2194,9 @@ public class WorldBuilder {
         fillOre(d);
         dressRim(d, mt);
         decorateCavern(d, mt);
+        // Both bands, walked as rings: the walkway round the pit, and the landscaped plot.
+        lightWalkway(d.pit, d.rim, MapLayout.RIM_W, 5);
+        lightWalkway(d.rim, d.plot, MapLayout.MINE_PLOT, 6);
         buildCageLanding(d);
     }
 
@@ -2296,10 +2305,7 @@ public class WorldBuilder {
                                         Math.min(z - plot[1], plot[3] - z));
                 long h = Math.floorMod(x * 41L + z * 23L, 100);
 
-                boolean lamp = Math.floorMod(x, 5) == 0 && Math.floorMod(z, 5) == 0;
-                arch.set(x, RIM_Y, z, lamp ? Material.SEA_LANTERN
-                        : fromWall <= 1 ? mt.band() : Material.ROOTED_DIRT);
-                if (lamp) continue;                      // nothing planted on a lamp
+                arch.set(x, RIM_Y, z, fromWall <= 1 ? mt.band() : Material.ROOTED_DIRT);
 
                 if (fromWall <= 1) {
                     // A kerb against the wall, lit on a rhythm.
@@ -2329,6 +2335,28 @@ public class WorldBuilder {
         }
     }
 
+    /**
+     * Lights set into the walkway, placed ALONG it rather than on a grid.
+     *
+     * The first attempt lit tiles where {@code x % 5 == 0 && z % 5 == 0}. On an open floor
+     * that is a lamp every five blocks; on a four-block-wide walkway it is almost nothing,
+     * because a side only gets a lamp where both axes happen to line up — and a side whose
+     * four x values miss every multiple of five gets none at all. That left 359 dark tiles.
+     *
+     * Walking the ring and stepping along it cannot miss.
+     */
+    private void lightWalkway(int[] inner, int[] outer, int band, int step) {
+        int mid = Math.max(1, band / 2);
+        for (int x = outer[0]; x <= outer[2]; x += step) {
+            arch.set(x, RIM_Y, outer[1] + mid, Material.SEA_LANTERN);
+            arch.set(x, RIM_Y, outer[3] - mid, Material.SEA_LANTERN);
+        }
+        for (int z = outer[1]; z <= outer[3]; z += step) {
+            arch.set(outer[0] + mid, RIM_Y, z, Material.SEA_LANTERN);
+            arch.set(outer[2] - mid, RIM_Y, z, Material.SEA_LANTERN);
+        }
+    }
+
     /** A small tree sized to fit between a terrace and the cavern ceiling. */
     private void cavernTree(int x, int y, int z, MineTheme mt) {
         int trunk = 3 + (int) Math.floorMod(x * 7L + z * 3L, 3);
@@ -2354,13 +2382,7 @@ public class WorldBuilder {
             for (int z = rim[1]; z <= rim[3]; z++) {
                 boolean overPit = x >= p[0] && x <= p[2] && z >= p[1] && z <= p[3];
                 if (overPit) continue;
-                // Light set into the walkway itself, on a tight enough rhythm to cover it.
-                // Lamp posts at the corners were fine for the old four-block rim; the plot
-                // made these chambers several times bigger and the first audited boot found
-                // 449 dark tiles, which is both unpleasant and enough for mobs to spawn.
-                boolean lamp = Math.floorMod(x, 5) == 0 && Math.floorMod(z, 5) == 0;
-                arch.set(x, RIM_Y, z, lamp ? Material.SEA_LANTERN
-                        : ((x + z) % 7 == 0) ? mt.band() : mt.floor());
+                arch.set(x, RIM_Y, z, ((x + z) % 7 == 0) ? mt.band() : mt.floor());
                 // Guard rail right on the lip, so nobody walks into the hole by accident.
                 boolean lip = x == p[0] - 1 || x == p[2] + 1 || z == p[1] - 1 || z == p[3] + 1;
                 if (lip) arch.set(x, RIM_Y + 1, z, Material.POLISHED_BLACKSTONE_WALL);

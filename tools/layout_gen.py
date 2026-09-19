@@ -117,7 +117,13 @@ CONCOURSE_IN = 236             # ring concourse, inner edge, measured from origi
 CONCOURSE_W = 9                # wide enough to read as a thoroughfare, not a tunnel
 CONCOURSE_OUT = CONCOURSE_IN + CONCOURSE_W
 SHAFT_W = 7                    # clear width of a ward's shaft tunnel
-SHAFT_NEAR = 8                 # the shaft starts under the ward, where the stair lands
+SHAFT_NEAR = CORRIDOR_LEN + WARD_DEPTH   # the shaft starts at the ward's OUTER wall
+#
+# It used to start at 8, i.e. INSIDE the ward, on the theory that the stair should
+# begin under it. It does not: the shaft descends as it goes, so four blocks out it
+# was exactly at the ward's centre, where the cage is — and it turned the cage's
+# lodestone floor to air and put a ceiling at head height. All twenty-six lifts were
+# destroyed by their own shaft. It begins where the ward ends now.
 
 regions, text_zones, gates, lifts = {}, {}, {}, {}
 ring = {}

@@ -187,6 +187,7 @@ public class WorldBuilder {
 
         int linked = arch.relinkConnectables();
         plugin.getLogger().info("Prison built. Connection states applied to " + linked + " blocks.");
+        plugin.getLogger().info("Pit lanterns hang from " + LANTERN_HANGER + ".");
         writeMarker();
     }
 
@@ -2445,12 +2446,8 @@ public class WorldBuilder {
         int lampY = d.oreTop + 3;
         for (int x : spread(p[0] + 1, p[2] - 1, 4)) {
             for (int z : spread(p[1] + 1, p[3] - 1, 4)) {
-                // Chain, not iron bars. The grid has to be four apart to hold light 8 on the
-                // ore three blocks below it, which is up to 121 hangers in the widest pit —
-                // and 121 bar columns thirty blocks tall is a cage, not a light fitting.
-                // A chain is the vanilla hanger for exactly this and reads as a thin line.
                 for (int y = PIT_CEILING - 1; y > lampY; y--) {
-                    arch.set(x, y, z, Material.CHAIN);
+                    arch.set(x, y, z, LANTERN_HANGER);
                 }
                 arch.set(x, lampY, z, Material.SEA_LANTERN);
             }
@@ -2481,6 +2478,27 @@ public class WorldBuilder {
 
     /** How far along the rim, either side of the cage, the walk-down flights sit. */
     private static final int STAIR_OFFSET = 8;
+
+    /**
+     * What the pit lanterns hang from.
+     *
+     * The grid has to be four apart to hold light 8 on ore three blocks below it, which is up
+     * to 121 hangers in the widest pit — and 121 iron-bar columns thirty blocks tall is a cage,
+     * not a light fitting. A chain is the vanilla hanger for exactly this and reads as a thin
+     * line. Looked up by name rather than written as Material.CHAIN because this Material enum
+     * does not carry every block the game has (POLISHED_DEEPSLATE_BRICKS was the last one to
+     * catch me out), and a missing block should cost the look, not the build.
+     */
+    private static final Material LANTERN_HANGER = firstAvailable("CHAIN", "IRON_CHAIN", "IRON_BARS");
+
+    /** The first of these the running server actually knows, so a rename cannot fail the build. */
+    private static Material firstAvailable(String... names) {
+        for (String n : names) {
+            Material m = Material.matchMaterial(n);
+            if (m != null) return m;
+        }
+        return Material.IRON_BARS;
+    }
 
     /**
      * One flight from the rim down onto the ore, cut into the pit's hub-facing lip.

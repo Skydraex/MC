@@ -1,1 +1,10 @@
-python3: can't open file '/home/runner/work/MC/MC/tools/map_check.py': [Errno 2] No such file or directory
+Hub: 136 x 136   gates: 30
+Surface regions: 72   mine pits: 26
+Doorways cut: 128
+Reachable from hub through them: 72 / 72
+
+--- Summary ---
+all 26 mines reachable on foot from their own ward,
+  (stair down, 160-block shaft, then the ring concourse)
+every gate bridges hub to ward at full door width,
+every surface area walkable from the hub, no overlaps, no label collisions.

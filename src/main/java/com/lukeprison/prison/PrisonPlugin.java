@@ -141,6 +141,7 @@ public class PrisonPlugin extends JavaPlugin implements Listener {
         getCommand("prestige").setExecutor(new PrestigeCommand(this));
         getCommand("prison").setExecutor(new SimpleCommands.PrisonMenu(menuGUI));
         getCommand("warps").setExecutor(new SimpleCommands.Warps(menuGUI));
+        getCommand("mine").setExecutor(new SimpleCommands.Mine(menuGUI));
         getCommand("enchant").setExecutor(new SimpleCommands.Enchant(enchantGUI));
         getCommand("tokens").setExecutor(new SimpleCommands.Tokens(this));
         getCommand("autosell").setExecutor(new SimpleCommands.AutoSell(this));

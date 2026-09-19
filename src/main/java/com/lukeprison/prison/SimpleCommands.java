@@ -28,6 +28,21 @@ public class SimpleCommands {
         }
     }
 
+    /** "/mine <rank>" — warps straight to a mine without opening the GUI, if it's unlocked
+     *  (rank's own mine or anything below it). "/mine" with no argument just opens the GUI,
+     *  same as "/warps". */
+    public static class Mine implements CommandExecutor {
+        private final MenuGUI menu;
+        public Mine(MenuGUI menu) { this.menu = menu; }
+        @Override
+        public boolean onCommand(CommandSender s, Command c, String l, String[] a) {
+            if (!(s instanceof Player p)) return true;
+            if (a.length == 0) { menu.openWarps(p); return true; }
+            menu.warpToMine(p, a[0]);
+            return true;
+        }
+    }
+
     public static class Enchant implements CommandExecutor {
         private final EnchantGUI gui;
         public Enchant(EnchantGUI gui) { this.gui = gui; }
